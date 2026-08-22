@@ -33,6 +33,7 @@ segments:
   max_clips: 16
   target_duration: 150.0
   snap_window: 2.0        # round transitions and killcams are the cuts here
+  min_silence: 0.25       # gunfire leaves only short gaps
 
 refiners: [diversity, pacing]
 refiner_params:

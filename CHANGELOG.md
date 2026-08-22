@@ -5,6 +5,26 @@ All notable changes are documented here. This project follows
 
 ## [Unreleased]
 
+## [0.3.0] — pauses and reactions
+
+### Added
+- **Silence-aware trimming** (on by default). Clip edges that found no shot
+  boundary are moved into the nearest pause instead: the in-point lands where
+  sound resumes, the out-point where it stops. "Quiet" is relative to the
+  clip's own speech level, and a clip with no usable contrast is left alone.
+  `--no-trim` on the CLI, `segments.trim_to_silence` / `silence_*` in profiles.
+- **Adaptive audio fades.** Clips that end mid-sound get a longer audio ramp so
+  the stop does not read as a dropout; the video fade is unchanged.
+- **Reaction-aware reframing.** `render.reframe.react_to_facecam` pulls the
+  9:16 crop toward the facecam box while that box is busy, and back to the
+  action when it is not. `--react` and `--facecam X0,Y0,X1,Y1` on the CLI.
+- Web UI toggles for trimming and facecam reaction; per-clip badges for edges
+  moved into a pause.
+
+### Changed
+- Precedence between the two edge stages is explicit: snapping runs first and
+  trimming only considers edges it did not claim.
+
 ## [0.2.0] — cut points and vertical
 
 ### Added

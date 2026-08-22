@@ -31,6 +31,7 @@ from .segments import build_candidates, merge, select
 from .signals import build_signals
 from .signals import load_plugins as load_signal_plugins
 from .snapping import snap_segments
+from .trimming import trim_segments
 from .types import AnalysisContext, HighlightPlan, SignalTrack, VideoInfo
 
 __all__ = ["analyze", "render_plan", "run", "PipelineResult", "Progress"]
@@ -101,8 +102,12 @@ def analyze(
     # cut rather than about the encode — so they belong here, on the analysis
     # side, and travel to the renderer inside each clip's metadata.
     if cfg.segments.snap_to_shots:
-        progress(0.90, "snapping to shot boundaries")
+        progress(0.88, "snapping to shot boundaries")
         segments = snap_segments(ctx, segments, cfg.segments)
+    if cfg.segments.trim_to_silence:
+        # Strictly after snapping: this only touches edges no cut claimed.
+        progress(0.92, "trimming to pauses")
+        segments = trim_segments(ctx, segments, cfg.segments)
     if cfg.render.reframe.mode != "off":
         progress(0.95, "planning reframe")
         segments = plan_reframe(ctx, segments, cfg.render.reframe)

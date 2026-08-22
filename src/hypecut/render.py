@@ -85,10 +85,14 @@ def _encode_segment(info: VideoInfo, seg: Candidate, dest: Path, cfg: RenderConf
     afilters = []
     if cfg.normalize_audio:
         afilters.append("dynaudnorm=f=200:g=5")
-    if cfg.fade > 0 and seg.duration > cfg.fade * 2:
-        out_at = max(0.0, seg.duration - cfg.fade)
-        afilters.append(f"afade=t=in:st=0:d={cfg.fade:.3f}")
-        afilters.append(f"afade=t=out:st={out_at:.3f}:d={cfg.fade:.3f}")
+    # The video fade stays constant so the reel keeps one visual rhythm, but the
+    # audio fade adapts: a clip that ends in a pause needs almost none, while one
+    # cut off mid-sound needs a longer ramp or the stop reads as a dropout.
+    a_fade = cfg.fade if seg.meta.get("ends_in_silence") else min(cfg.fade * 2.5, 0.6)
+    if a_fade > 0 and seg.duration > a_fade * 2:
+        out_at = max(0.0, seg.duration - a_fade)
+        afilters.append(f"afade=t=in:st=0:d={min(cfg.fade, a_fade):.3f}")
+        afilters.append(f"afade=t=out:st={out_at:.3f}:d={a_fade:.3f}")
     afilters.append("asetpts=PTS-STARTPTS")
 
     # -ss before -i seeks fast; -accurate_seek keeps the cut frame-exact, which

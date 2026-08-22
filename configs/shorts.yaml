@@ -31,6 +31,8 @@ segments:
   target_duration: 60.0
   snap_to_shots: true
   snap_window: 2.0
+  trim_to_silence: true
+  silence_pad: 0.08       # vertical clips want to open the instant sound starts
 
 render:
   crf: 21
@@ -43,6 +45,10 @@ render:
     smooth_seconds: 2.0
     max_pan: 0.12
     keyframes: 8
+    # Turn this on once `facecam` below matches your layout: the crop then
+    # commits to the streamer during reactions instead of averaging the two.
+    react_to_facecam: false
+    react_weight: 0.6
     # Used only when mode is `stack` — normalised [x0, y0, x1, y1] boxes.
     facecam: [0.0, 0.0, 0.26, 0.30]
     gameplay: [0.0, 0.0, 1.0, 1.0]

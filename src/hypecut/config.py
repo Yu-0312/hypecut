@@ -77,6 +77,14 @@ class SegmentConfig:
     snap_fine: bool = True  # re-check at native frame rate for frame accuracy
     snap_guard: float = 0.75  # minimum footage kept after the peak when snapping the end
 
+    # Silence-aware trimming — the audio half of the same problem. Only edges
+    # that found no shot boundary are considered, so a real cut always wins.
+    trim_to_silence: bool = True
+    silence_window: float = 1.5  # how far an edge may travel to reach a pause
+    min_silence: float = 0.30  # a pause has to last this long to count
+    silence_drop_db: float = 14.0  # how far below the clip's own level is "quiet"
+    silence_pad: float = 0.12  # breathing room kept on the speech side of the pause
+
 
 @dataclass
 class ReframeConfig:
@@ -100,6 +108,13 @@ class ReframeConfig:
     gameplay: list[float] = field(default_factory=lambda: [0.0, 0.0, 1.0, 1.0])
     facecam_share: float = 0.32  # portion of output height for the facecam pane
     blur_sigma: float = 24.0
+
+    # Reaction-aware crop: when the facecam is busy (the streamer is reacting),
+    # pull the crop toward it; otherwise stay on the action. Needs `facecam` to
+    # actually match the layout, which is why it is off by default.
+    react_to_facecam: bool = False
+    react_weight: float = 0.6  # 0 = ignore the facecam, 1 = frame it exclusively
+    react_threshold: float = 1.6  # multiple of the clip's median facecam activity
 
     def __post_init__(self) -> None:
         # YAML 1.1 reads a bare `off` as the boolean False, so the most natural

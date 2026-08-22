@@ -79,6 +79,21 @@ def build_parser() -> argparse.ArgumentParser:
             action="store_true",
             help="let the vertical crop pan to follow the action instead of holding still",
         )
+        p.add_argument(
+            "--no-trim",
+            action="store_true",
+            help="do not move un-snapped clip edges into nearby pauses",
+        )
+        p.add_argument(
+            "--facecam",
+            metavar="X0,Y0,X1,Y1",
+            help="facecam box in 0-1 coordinates, e.g. 0,0,0.26,0.3 (stack mode, --react)",
+        )
+        p.add_argument(
+            "--react",
+            action="store_true",
+            help="in crop mode, pull the frame toward the facecam when it is busy",
+        )
         p.add_argument("-q", "--quiet", action="store_true")
 
     cut = sub.add_parser("cut", help="analyse and render a highlight reel")
@@ -121,6 +136,8 @@ def _config_from_args(args: argparse.Namespace) -> Config:
         seg["snap_to_shots"] = False
     if args.snap_window is not None:
         seg["snap_window"] = args.snap_window
+    if args.no_trim:
+        seg["trim_to_silence"] = False
 
     render: dict[str, object] = {}
     for key in ("width", "height", "crf"):
@@ -135,6 +152,11 @@ def _config_from_args(args: argparse.Namespace) -> Config:
         reframe["mode"] = args.reframe
     if args.reframe_track:
         reframe["track"] = True
+    if args.facecam:
+        reframe["facecam"] = _parse_box(args.facecam)
+    if args.react:
+        reframe["react_to_facecam"] = True
+        reframe.setdefault("mode", "crop")
     if reframe:
         # When reframing is on it owns the output geometry, so --width/--height
         # have to land there instead of on the (now unused) scale/pad path.
@@ -151,6 +173,17 @@ def _config_from_args(args: argparse.Namespace) -> Config:
     if args.refiner:
         overrides["refiners"] = args.refiner
     return cfg.merged(overrides) if overrides else cfg
+
+
+def _parse_box(text: str) -> list[float]:
+    """Parse ``x0,y0,x1,y1`` in normalised 0-1 coordinates."""
+    try:
+        values = [float(part) for part in text.replace(" ", "").split(",")]
+    except ValueError as exc:
+        raise ValueError(f"--facecam expects four numbers, got {text!r}") from exc
+    if len(values) != 4 or not all(0.0 <= v <= 1.0 for v in values):
+        raise ValueError(f"--facecam expects four 0-1 values as X0,Y0,X1,Y1, got {text!r}")
+    return values
 
 
 def _progress(quiet: bool):
@@ -269,14 +302,22 @@ def _summarise(plan, quiet: bool) -> None:
         f"({plan.total_duration / max(plan.info.duration, 1e-9) * 100:.1f}% kept)"
     )
     snapped = sum(1 for s in plan.segments if s.meta.get("snapped"))
+    trimmed = sum(1 for s in plan.segments if s.meta.get("trimmed"))
+    total = len(plan.segments)
     if snapped:
-        print(f"{snapped}/{len(plan.segments)} clips moved onto a shot boundary")
+        print(f"{snapped}/{total} clips moved onto a shot boundary")
+    if trimmed:
+        print(f"{trimmed}/{total} clips had an edge moved into a pause")
     for seg in plan.segments:
         top = max(seg.reasons, key=seg.reasons.get) if seg.reasons else "-"
         notes = []
         if seg.meta.get("snapped"):
             notes.append(
                 "snap " + " ".join(f"{k}{v:+.2f}s" for k, v in seg.meta["snapped"].items())
+            )
+        if seg.meta.get("trimmed"):
+            notes.append(
+                "pause " + " ".join(f"{k}{v:+.2f}s" for k, v in seg.meta["trimmed"].items())
             )
         if seg.meta.get("reframe"):
             plan_ = seg.meta["reframe"]

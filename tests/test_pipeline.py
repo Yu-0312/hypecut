@@ -151,3 +151,41 @@ def test_vertical_reel_renders_at_the_requested_size(sample_vod, tmp_path, mode)
     reel = probe(out)
     assert (reel.width, reel.height) == (540, 960)
     assert all(s.meta.get("reframe", {}).get("mode") == mode for s in result.plan.segments)
+
+
+@requires_ffmpeg
+def test_edges_move_into_the_pauses_on_footage_with_no_cuts(talk_vod):
+    """The case snapping cannot help with: one locked-off shot, all audio."""
+    from tests.conftest import TALK_LOUD, TALK_PAUSES
+
+    cfg = Config().merged({"segments": {"percentile": 88, "min_duration": 4.0}})
+    plan = analyze(talk_vod, cfg)
+    assert plan.segments
+
+    seg = max(plan.segments, key=lambda s: s.score)
+    assert seg.meta.get("trimmed"), "expected an edge to reach a pause"
+    assert not seg.meta.get("snapped"), "there are no shot boundaries in this fixture"
+
+    # Both edges should now sit inside a pause, close to the loud stretch.
+    for edge in (seg.start, seg.end):
+        assert any(lo - 0.4 <= edge <= hi + 0.4 for lo, hi in TALK_PAUSES), (
+            f"edge at {edge:.2f}s is not in a pause"
+        )
+    assert seg.start <= TALK_LOUD[0] + 0.3
+    assert seg.end >= TALK_LOUD[1] - 0.3
+
+
+@requires_ffmpeg
+def test_trimming_can_be_switched_off(talk_vod):
+    cfg = Config().merged({"segments": {"percentile": 88, "trim_to_silence": False}})
+    plan = analyze(talk_vod, cfg)
+    assert all("trimmed" not in s.meta for s in plan.segments)
+
+
+@requires_ffmpeg
+def test_a_snapped_edge_is_never_overwritten_by_trimming(sample_vod):
+    cfg = Config().merged({"segments": {"percentile": 85, "min_duration": 3.0}})
+    plan = analyze(sample_vod, cfg)
+    for seg in plan.segments:
+        overlap = set(seg.meta.get("snapped", {})) & set(seg.meta.get("trimmed", {}))
+        assert not overlap, f"{overlap} was decided twice"

@@ -156,3 +156,69 @@ def test_portrait_source_is_handled_without_upscaling_past_the_frame():
     width = int(crop.split("w=")[1].split(":")[0])
     height = int(crop.split("h=")[1].split(":")[0])
     assert width <= 720 and height <= 1280
+
+
+def _ctx_with_facecam_reaction(grid_fps: float = 10.0, n: int = 120):
+    """Action always on the right; a facecam in the top-left that wakes up mid-clip."""
+    h, w = 54, 96
+    gray = np.zeros((n, h, w), dtype=np.uint8)
+    for i in range(n):
+        # Gameplay: a block bouncing around the right-hand third.
+        x = 70 + (i % 8)
+        gray[i, 25:40, x : x + 12] = 240
+        # Facecam box occupies x 0-24, y 0-16 (i.e. [0, 0, 0.25, 0.3]).
+        offset = (i % 5) if 40 <= i < 90 else 0  # only "reacting" for steps 40-90
+        gray[i, 2:14, 4 + offset : 16 + offset] = 160
+    return AnalysisContext(
+        info=VideoInfo("fake.mp4", n / grid_fps, 30.0, 1280, 720, True),
+        grid_fps=grid_fps,
+        times=np.arange(n) / grid_fps,
+        gray=gray,
+    )
+
+
+def _reaction_cfg(**kw):
+    base = {
+        "mode": "crop",
+        "react_to_facecam": True,
+        "facecam": [0.0, 0.0, 0.25, 0.3],
+        "smooth_seconds": 0.3,
+        "max_pan": 1.0,
+    }
+    base.update(kw)
+    return ReframeConfig(**base)
+
+
+def test_reaction_bias_pulls_the_crop_toward_a_busy_facecam():
+    ctx = _ctx_with_facecam_reaction()
+    seg = Candidate(0.0, 12.0, 1.0)
+
+    plain = np.asarray(action_track(ctx, seg, _reaction_cfg(react_to_facecam=False)))
+    react = np.asarray(action_track(ctx, seg, _reaction_cfg()))
+
+    hot = slice(45, 85)
+    assert react[hot].mean() < plain[hot].mean() - 0.03, "should commit toward the facecam"
+
+
+def test_reaction_bias_leaves_quiet_stretches_alone():
+    ctx = _ctx_with_facecam_reaction()
+    seg = Candidate(0.0, 12.0, 1.0)
+
+    plain = np.asarray(action_track(ctx, seg, _reaction_cfg(react_to_facecam=False)))
+    react = np.asarray(action_track(ctx, seg, _reaction_cfg()))
+
+    cold = slice(0, 30)
+    assert abs(react[cold].mean() - plain[cold].mean()) < 0.05
+
+
+def test_reaction_bias_is_off_by_default():
+    """It needs a correct facecam box, which only the user can supply."""
+    assert ReframeConfig().react_to_facecam is False
+
+
+def test_reaction_bias_ignores_a_degenerate_box():
+    ctx = _ctx_with_facecam_reaction()
+    seg = Candidate(0.0, 12.0, 1.0)
+    plain = np.asarray(action_track(ctx, seg, _reaction_cfg(react_to_facecam=False)))
+    empty = np.asarray(action_track(ctx, seg, _reaction_cfg(facecam=[0.4, 0.4, 0.4, 0.4])))
+    assert np.allclose(plain, empty)

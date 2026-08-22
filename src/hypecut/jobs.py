@@ -202,6 +202,8 @@ def _options_to_overrides(options: dict[str, Any]) -> dict[str, Any]:
         seg["target_duration"] = target if target > 0 else None
     if options.get("snap_to_shots") is not None:
         seg["snap_to_shots"] = bool(options["snap_to_shots"])
+    if options.get("trim_to_silence") is not None:
+        seg["trim_to_silence"] = bool(options["trim_to_silence"])
 
     render: dict[str, Any] = {}
     reframe: dict[str, Any] = {}
@@ -209,6 +211,8 @@ def _options_to_overrides(options: dict[str, Any]) -> dict[str, Any]:
         reframe["mode"] = str(options["reframe"])
     if options.get("reframe_track") is not None:
         reframe["track"] = bool(options["reframe_track"])
+    if options.get("react_to_facecam") is not None:
+        reframe["react_to_facecam"] = bool(options["react_to_facecam"])
     if reframe:
         render["reframe"] = reframe
 

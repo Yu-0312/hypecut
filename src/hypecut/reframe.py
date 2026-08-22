@@ -52,7 +52,8 @@ def action_track(ctx: AnalysisContext, seg: Candidate, cfg: ReframeConfig) -> li
     if frames.shape[0] < 2:
         return [0.5]
 
-    energy = np.abs(np.diff(frames.astype(np.float32), axis=0)).sum(axis=1)  # (T-1, W)
+    diff = np.abs(np.diff(frames.astype(np.float32), axis=0))  # (T-1, H, W)
+    energy = diff.sum(axis=1)  # (T-1, W)
     total = energy.sum(axis=1)
     columns = np.arange(energy.shape[1], dtype=np.float64)
     centre = np.where(
@@ -60,6 +61,9 @@ def action_track(ctx: AnalysisContext, seg: Candidate, cfg: ReframeConfig) -> li
         (energy * columns).sum(axis=1) / np.maximum(total, 1e-6),
         energy.shape[1] / 2.0,
     ) / max(1, energy.shape[1] - 1)
+
+    if cfg.react_to_facecam:
+        centre = _bias_toward_facecam(centre, diff, cfg)
 
     centre = _moving_average(centre, int(round(cfg.smooth_seconds * ctx.grid_fps)))
     return _limit_pan(centre, max_step=cfg.max_pan / max(ctx.grid_fps, 1e-6)).tolist()
@@ -139,6 +143,51 @@ def geometry_filters(info: VideoInfo, seg: Candidate, cfg: ReframeConfig) -> lis
 
 
 # --------------------------------------------------------------------- private
+
+
+def _bias_toward_facecam(centre: np.ndarray, diff: np.ndarray, cfg: ReframeConfig) -> np.ndarray:
+    """Pull the crop toward the facecam during the moments it comes alive.
+
+    The reaction *is* the highlight as often as the play is, and a vertical
+    crop that never shows the streamer's face throws half of it away. But
+    holding on the facecam for a whole clip is worse than never cutting to it,
+    so the pull is gated on the facecam actually being busy — measured against
+    that clip's own median activity there, since a webcam that is always
+    slightly noisy would otherwise read as a permanent reaction.
+
+    No detector is involved: the box comes from the profile. That keeps this
+    dependency-free and, more importantly, correct for whatever layout the
+    streamer actually uses, which no general face model can assume.
+    """
+    h, w = diff.shape[1], diff.shape[2]
+    x0, y0, x1, y1 = (float(v) for v in cfg.facecam)
+    cx0, cx1 = sorted((int(np.clip(x0, 0, 1) * w), int(np.clip(x1, 0, 1) * w)))
+    cy0, cy1 = sorted((int(np.clip(y0, 0, 1) * h), int(np.clip(y1, 0, 1) * h)))
+    if cx1 - cx0 < 1 or cy1 - cy0 < 1:
+        return centre
+
+    activity = diff[:, cy0:cy1, cx0:cx1].mean(axis=(1, 2))
+
+    # The resting level, not the median. A reaction that fills most of the clip
+    # would drag the median up into itself and then measure as "normal" — the
+    # same mistake as normalising a signal against a window containing the
+    # thing you are trying to detect. A low percentile estimates the webcam's
+    # idle noise instead, which is what "busy" should be compared against.
+    baseline = float(np.percentile(activity, 25))
+    if baseline <= 1e-6:
+        baseline = float(np.mean(activity)) * 0.5
+    if baseline <= 1e-6:
+        return centre
+
+    hot = activity > baseline * cfg.react_threshold
+    if not hot.any():
+        return centre
+
+    face_x = ((cx0 + cx1) / 2.0) / max(1, w - 1)
+    weight = float(np.clip(cfg.react_weight, 0.0, 1.0))
+    out = centre.copy()
+    out[hot] = (1.0 - weight) * out[hot] + weight * face_x
+    return out
 
 
 def _moving_average(values: np.ndarray, window: int) -> np.ndarray:

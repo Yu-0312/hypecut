@@ -25,6 +25,9 @@ segments:
   snap_to_shots: true     # move clip edges onto real cuts
   snap_window: 2.0        # ...travelling at most this far (or the roll, if larger)
   snap_fine: true         # then re-check at the source frame rate
+  trim_to_silence: true   # edges no cut claimed get moved into nearby pauses
+  silence_window: 1.5     # ...travelling at most this far (or the roll, if larger)
+  min_silence: 0.30       # a gap has to last this long to count as a pause
 
 render:
   crf: 20

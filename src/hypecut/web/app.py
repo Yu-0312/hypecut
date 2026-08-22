@@ -88,6 +88,8 @@ async def create_job(
     reframe: str = Form("off"),
     reframe_track: bool = Form(False),
     snap_to_shots: bool = Form(True),
+    trim_to_silence: bool = Form(True),
+    react_to_facecam: bool = Form(False),
 ) -> JSONResponse:
     suffix = Path(file.filename or "").suffix.lower()
     if reframe not in REFRAME_MODES:
@@ -126,6 +128,8 @@ async def create_job(
         "reframe": reframe,
         "reframe_track": reframe_track,
         "snap_to_shots": snap_to_shots,
+        "trim_to_silence": trim_to_silence,
+        "react_to_facecam": react_to_facecam,
     }
     job = store.submit(safe_name, dest, options)
     return JSONResponse({"id": job.id, "status": job.status.value}, status_code=202)

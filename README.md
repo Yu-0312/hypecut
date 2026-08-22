@@ -12,10 +12,11 @@ hypecut cut vod.mp4 -o reel.mp4 --target 120
 
 ```
 3 clips, 118.4s reel from 5412.0s source (2.2% kept)
-3/3 clips moved onto a shot boundary
+2/3 clips moved onto a shot boundary
+2/3 clips had an edge moved into a pause
   00:14:22–00:14:41  score 0.912  top signal: roi_activity     [snap start-0.84s]
-  00:41:07–00:41:29  score 0.884  top signal: audio_transient  [snap start-1.20s end+0.43s]
-  01:22:55–01:23:31  score 0.871  top signal: audio_rms        [snap end+0.67s]
+  00:41:07–00:41:29  score 0.884  top signal: audio_transient  [snap start-1.20s; pause end+0.43s]
+  01:22:55–01:23:31  score 0.871  top signal: audio_rms        [pause start+0.31s end+0.67s]
 ```
 
 Or run the web UI and drag the file onto the page:
@@ -86,6 +87,12 @@ hypecut cut vod.mp4 --vertical --reframe-track
 hypecut cut vod.mp4 --profile configs/shorts.yaml
 hypecut cut vod.mp4 --reframe stack      # facecam on top, gameplay below
 
+# Vertical that commits to the facecam while the streamer is reacting
+hypecut cut vod.mp4 --vertical --react --facecam 0,0,0.26,0.3
+
+# Leave the edges exactly where the rolls put them
+hypecut cut vod.mp4 --no-snap --no-trim
+
 # See the cut list without spending an encode
 hypecut analyze vod.mp4 --json plan.json
 
@@ -131,6 +138,7 @@ video ─┤ decode×1 ├─► 10 Hz grid: tiny grayscale frames + mono audio
                         merge → budget select
                                  │
          snap edges to real cuts ┤  ±2 s, coarse then frame-exact
+        trim the rest to pauses ─┤  only edges no cut claimed
         plan the 9:16 crop ──────┤  from where the motion is
                                  ▼
                         ffmpeg cut + concat
@@ -157,12 +165,22 @@ continuous shot looks *sliced*; the same clip started on the cut looks
 each accepted edge is re-checked at the source frame rate. Nothing may cross
 the clip's peak, and a snap that would break the length budget is refused.
 
+**What the cuts miss, the pauses catch.** A locked-off talking-head stream has
+no shot boundaries at all, so snapping has nothing to work with and edges land
+three words into a sentence. Any edge that found no boundary is then moved into
+the nearest pause instead — measured against that clip's own speech level, so a
+whispered aside and a shouted play are both handled. A real cut always wins:
+trimming never touches an edge snapping already decided.
+
 **Vertical is a crop, not a letterbox.** `--vertical` takes a 9:16 slice
 centred on where the motion actually is, computed per clip from the same
 decoded frames. Add `--reframe-track` and the crop pans to follow the action,
 velocity-limited so it reads as a camera push rather than a twitch. The
 alternatives are there too: `--reframe stack` for facecam-over-gameplay, and
-`--reframe blur_pad` when the whole frame matters.
+`--reframe blur_pad` when the whole frame matters. With `--react` and a
+`--facecam` box, the crop commits to the streamer while the webcam is busy and
+returns to the action when it isn't — the reaction is half the highlight, and a
+crop that averages the two frames neither.
 
 Full detail in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 

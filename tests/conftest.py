@@ -90,3 +90,54 @@ def silent_vod(tmp_path_factory: pytest.TempPathFactory) -> Path:
         out=str(out),
     )
     return out
+
+
+# Pauses built into `talk_vod`, in seconds. No hard cuts anywhere in it: a
+# locked-off camera is exactly the footage shot snapping cannot help with.
+TALK_PAUSES = [(6.0, 7.5), (16.0, 17.5), (26.0, 28.0)]
+TALK_LOUD = (17.5, 26.0)
+
+
+@pytest.fixture(scope="session")
+def talk_vod(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A static frame over speech-like audio with pauses at known times."""
+    if not HAS_FFMPEG:
+        pytest.skip("ffmpeg not installed")
+    np = pytest.importorskip("numpy")
+
+    d = tmp_path_factory.mktemp("talk")
+    sr, rng = 48_000, np.random.default_rng(11)
+    layout = [
+        ("talk", 6.0),
+        ("gap", 1.5),
+        ("talk", 8.5),
+        ("gap", 1.5),
+        ("loud", 8.5),
+        ("gap", 2.0),
+        ("talk", 6.0),
+    ]
+    chunks = []
+    cursor = 0.0
+    for kind, seconds in layout:
+        n = int(seconds * sr)
+        if kind == "gap":
+            chunks.append(np.zeros(n, dtype=np.float32))
+        elif kind == "talk":
+            chunks.append(rng.normal(0, 0.04, n).astype(np.float32))
+        else:
+            t = np.arange(n) / sr + cursor
+            chunks.append((0.5 * np.sin(2 * np.pi * 520 * t)).astype(np.float32))
+        cursor += seconds
+
+    raw = d / "audio.f32"
+    raw.write_bytes(np.concatenate(chunks).tobytes())
+
+    out = d / "talk.mp4"
+    _run(
+        "ffmpeg -v error -y -f f32le -ar 48000 -ac 1 -i {raw} "
+        "-f lavfi -i color=c=#1a1a24:s=320x180:r=15 -shortest "
+        "-c:v libx264 -preset ultrafast -crf 32 -pix_fmt yuv420p -c:a aac -b:a 96k {out}",
+        raw=str(raw),
+        out=str(out),
+    )
+    return out

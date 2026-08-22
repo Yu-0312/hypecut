@@ -191,6 +191,33 @@ Rounding is deliberately late rather than early: the returned time is the
 frame *after* the largest difference. One frame late is invisible; one frame
 early shows a flash of the outgoing shot — exactly the artefact this removes.
 
+### Silence-aware trimming (`trimming.py`)
+
+The audio half of the same problem, and the only half available on footage
+with no cuts in it — a locked-off webcam stream has exactly one shot.
+
+An edge belongs in a gap, not in the middle of a sound. The in-point lands
+where sound resumes; the out-point lands where it stops. Both keep a small pad
+so the clip does not open or close on a hard transient.
+
+"Quiet" is measured against the clip's own speech level (75th percentile minus
+14 dB), never a global threshold: a whispered aside and a shouted play share no
+absolute dBFS range but both have the same *gap* between talking and not. Two
+guards stop it inventing pauses — if almost nothing is below the threshold
+(continuous sound) or almost everything is (continuous quiet), the clip is left
+alone rather than moved on noise.
+
+**Precedence is the important part.** Trimming only ever considers edges that
+found no shot boundary. A hard cut is unambiguous evidence about where a moment
+ends; a pause is a good guess. Running both and letting the second overwrite
+the first would mean the weaker signal decides.
+
+One by-product feeds the renderer: whether the clip's last moment is quiet.
+The video fade stays constant so the reel keeps one visual rhythm, but the
+audio fade lengthens for clips cut off mid-sound, where a hard stop would read
+as a dropout. That flag is computed even when there are no usable pauses —
+a clip buried inside continuous sound is precisely the one that needs it.
+
 ### Vertical reframing (`reframe.py`)
 
 A 16:9 clip in a 9:16 slot loses two thirds of its height. Three ways out:
@@ -204,6 +231,17 @@ A 16:9 clip in a 9:16 slot loses two thirds of its height. Three ways out:
 * **`blur_pad`** — the whole frame over a blurred blow-up of itself. Loses
   nothing, wastes half the screen; the right default when the important thing
   might be anywhere (minimaps, scoreboards).
+
+With `react_to_facecam`, the crop centre is pulled toward the facecam box
+during the moments that box is busy. The reaction is as often the highlight as
+the play is, and a motion centroid — being an average — frames the midpoint
+between the two, which shows neither. "Busy" is measured against the *25th
+percentile* of facecam activity in the clip, not the median: a reaction filling
+most of the clip would drag the median up into itself and then measure as
+normal, the same mistake as normalising a signal against a window containing
+the thing you are detecting. No detector is involved; the box comes from the
+profile, which keeps this dependency-free and correct for whatever layout the
+streamer actually uses.
 
 Panning is off by default. A crop that chases every centroid wobble reads as
 camera drift, and a still frame placed at the *median* of the action is what

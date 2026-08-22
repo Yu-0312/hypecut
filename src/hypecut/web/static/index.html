@@ -148,7 +148,11 @@
       </div>
       <div class="chips" style="margin-top:10px">
         <span class="chip" id="track" title="Let the crop pan to follow the action">pan to follow</span>
+        <span class="chip" id="react" title="Pull the crop toward the facecam when it is busy">react to facecam</span>
+      </div>
+      <div class="chips" style="margin-top:10px">
         <span class="chip on" id="snap" title="Move clip edges onto nearby shot boundaries">snap to cuts</span>
+        <span class="chip on" id="trim" title="Move un-snapped edges into nearby pauses">trim to pauses</span>
       </div>
 
       <button id="go" disabled>Find the highlights</button>
@@ -209,11 +213,12 @@ document.querySelectorAll("#reframe .chip").forEach((chip) => {
     document.querySelectorAll("#reframe .chip").forEach((c) => c.classList.remove("on"));
     chip.classList.add("on");
     reframeMode = chip.dataset.mode;
-    $("track").style.opacity = reframeMode === "crop" ? "1" : "0.35";
+    const usable = reframeMode === "crop" ? "1" : "0.35";
+    ["track", "react"].forEach((id) => ($(id).style.opacity = usable));
   };
 });
-$("track").style.opacity = "0.35";
-["track", "snap"].forEach((id) => {
+["track", "react"].forEach((id) => ($(id).style.opacity = "0.35"));
+["track", "react", "snap", "trim"].forEach((id) => {
   $(id).onclick = () => $(id).classList.toggle("on");
 });
 
@@ -253,6 +258,8 @@ $("go").onclick = async () => {
   fd.append("reframe", reframeMode);
   fd.append("reframe_track", $("track").classList.contains("on"));
   fd.append("snap_to_shots", $("snap").classList.contains("on"));
+  fd.append("trim_to_silence", $("trim").classList.contains("on"));
+  fd.append("react_to_facecam", $("react").classList.contains("on"));
 
   try {
     const res = await fetch("/api/jobs", { method: "POST", body: fd });
@@ -306,6 +313,7 @@ function renderClips(plan) {
     const meta = s.meta || {};
     const tags = [];
     if (meta.snapped) tags.push("snapped to cut");
+    if (meta.trimmed) tags.push("trimmed to pause");
     if (meta.reframe && meta.reframe.mode !== "off") {
       tags.push(meta.reframe.mode + (meta.reframe.keyframes ? " · pan" : ""));
     }

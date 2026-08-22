@@ -12,20 +12,30 @@ interesting it is to build. Items marked **help wanted** are good entry points.
       `stack` (facecam over gameplay) and `blur_pad`, planned during analysis
       and recorded in the sidecar.
 
-## v0.3 — better cut points, continued
+## Shipped in v0.3
 
-- [ ] **Silence-aware trimming.** Pull the out-point back to the first pause
-      after the reaction instead of a fixed post-roll. Snapping fixed the
-      *visual* edges; this is the audio half of the same problem. **help wanted**
-- [ ] **Beat/loudness-aware transitions.** Crossfade lengths that follow the
-      audio instead of a constant 0.25 s.
-- [ ] **Face-aware reframing.** When a facecam is present, bias the `crop`
-      centre toward it during reaction beats and toward the action otherwise.
-      Needs an optional face detector, so it belongs behind an extra. **help wanted**
+- [x] **Silence-aware trimming.** Edges that found no shot boundary move into
+      the nearest pause instead, measured against the clip's own speech level.
+- [x] **Adaptive audio fades.** The video fade stays constant; the audio fade
+      lengthens for clips cut off mid-sound.
+- [x] **Reaction-aware reframing.** The `crop` centre commits to the facecam
+      box while that box is busy — no detector, no extra dependency. The
+      original plan was a face model behind an optional extra; a configured
+      box turned out to give the same behaviour, verifiably, for nothing.
+
+## v0.4 — better cut points, continued
+
+- [ ] **Auto-locate the facecam.** `react_to_facecam` needs the box to be
+      right, which is the one thing a user has to supply by hand. A one-off
+      detection pass (optional extra) could find it and remove the setting.
+      **help wanted**
 - [ ] **Dissolve detection.** Snapping only finds hard cuts today; fades and
       wipes are missed. **help wanted**
+- [ ] **Word-boundary trimming.** Pauses are found from loudness alone, so a
+      slow speaker with no gaps still gets cut mid-word. ASR word timings
+      (behind the existing `[asr]` extra) would fix it. **help wanted**
 
-## v0.4 — reach
+## v0.5 — reach
 
 - [ ] **Twitch/YouTube VOD URLs as input**, via yt-dlp as an optional extra.
 - [ ] **Chat-log signal.** Twitch chat message rate is close to a free
@@ -35,7 +45,7 @@ interesting it is to build. Items marked **help wanted** are good entry points.
 - [ ] **One source, both aspect ratios** in a single pass — landscape reel plus
       vertical cutdowns, sharing the analysis.
 
-## v0.5 — deployments with more than one user
+## v0.6 — deployments with more than one user
 
 - [ ] Pluggable queue backend (RQ or arq) behind the existing `JobStore`
       interface; the in-process worker stays the default.
@@ -69,6 +79,11 @@ calibration data we don't have.
 CLIP at judging candidates, but it breaks the "works fully offline, sends
 nothing anywhere" guarantee. Current thinking: acceptable as an explicitly
 opt-in refiner with a loud disclosure, never as a default. Not yet built.
+
+**Should trimming be allowed to override a snap?** Right now a shot boundary
+always wins, on the grounds that a cut is evidence and a pause is a guess. But
+a clip that snaps to a cut and then opens on half a word is a real failure mode
+nobody has measured yet.
 
 **How far should a crop be allowed to pan?** The velocity cap
 (`reframe.max_pan`, 10% of frame width per second) is a guess calibrated on
