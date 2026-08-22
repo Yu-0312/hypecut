@@ -48,6 +48,14 @@ Follow `AGENTS.md` in the HypeCut repo for the full contract. The short form:
 6. **Render.** `hypecut cut …`, or `hypecut render plan.json` if they edited
    the cut list.
 
+7. **Measure, if there is a choice to make.** Two plausible profiles and no
+   way to pick? `hypecut label input.mp4` writes a draft answer key plus a
+   sheet; the **user** marks `keep: true/false` and adds what was missed;
+   `hypecut eval labels.yaml -p a.yaml -p b.yaml` scores both. `recall` is
+   *did we find it*, `cover` is *how much of it survived* — they need
+   different fixes. Never fill in the labels yourself: scoring your own
+   detector against your own opinion measures nothing.
+
 ## Non-negotiables
 
 - **Open both contact sheets.** Choosing a profile without seeing a frame is
@@ -69,6 +77,7 @@ Follow `AGENTS.md` in the HypeCut repo for the full contract. The short form:
 | A whole folder | `hypecut batch FOLDER -o OUT --recursive` |
 | Football / basketball match | `--profile configs/sports-broadcast.yaml` |
 | Phone on the sideline | `--profile configs/sports-field.yaml` |
+| "Is this profile actually better?" | `hypecut label VIDEO`, they mark it, `hypecut eval LABELS -p A -p B` |
 
 ## Deliver
 

@@ -294,3 +294,44 @@ def test_shipped_sports_profiles_run_end_to_end(sports_vod):
         )
         plan = analyze(sports_vod, cfg)
         assert plan.segments, f"{name} found nothing"
+
+
+@requires_ffmpeg
+def test_evaluation_separates_the_sports_profile_from_the_default(sports_vod, tmp_path):
+    """The whole point of the harness: turn a claim about quality into numbers.
+
+    On this fixture both profiles *find* the goal, so recall, precision and F1
+    all tie at 1.0 — and that tie is exactly why coverage is reported
+    separately. The gameplay default fires on the goal frame itself and rolls
+    out before the crowd has finished, keeping about two thirds of the moment;
+    the sports profile knows the evidence arrives late and keeps all of it.
+    Same detection, different framing, and only one number says so.
+    """
+    from hypecut.evaluation import Highlight, Labels, score_plan
+    from tests.conftest import SPORT_GOAL, SPORT_ROAR
+
+    # The fixture's answer key is known by construction: one moment, the goal
+    # and the roar that follows it. The whistle and the decoy shout are not.
+    labels = Labels(
+        video=str(sports_vod),
+        highlights=[Highlight(SPORT_GOAL - 2.0, SPORT_ROAR[1], "the goal")],
+        annotator="fixture",
+    )
+
+    root = Path(__file__).resolve().parents[1] / "configs"
+    scores = {}
+    for name in ("default.yaml", "sports-broadcast.yaml"):
+        cfg = load_config(root / name).merged({"segments": {"percentile": 90}})
+        plan = analyze(sports_vod, cfg)
+        scores[name] = score_plan(labels, [(s.start, s.end) for s in plan.segments])
+
+    sport = scores["sports-broadcast.yaml"]
+    generic = scores["default.yaml"]
+
+    assert sport.recall == 1.0, "the sports profile has to find the goal"
+    assert generic.recall == 1.0, "so does the default — the difference is not detection"
+    assert sport.f1 >= generic.f1, "the sports profile must never score worse"
+    assert sport.coverage > generic.coverage + 0.2, (
+        f"the sports profile should keep more of the moment "
+        f"({sport.coverage:.2f} vs {generic.coverage:.2f})"
+    )

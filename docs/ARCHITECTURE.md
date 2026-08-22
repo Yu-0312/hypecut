@@ -369,6 +369,47 @@ Alongside the mp4, every run writes:
   that refuses to hand over its work is a tool people stop trusting.
 * MP4 chapters — one marker per clip, with its source timecode.
 
+## Evaluation
+
+`evaluation.py` is the only module that does not touch video. It exists
+because everything above it is a threshold, and a threshold nobody has
+measured is an opinion.
+
+A **labels file** is a video path plus a list of spans, one annotator, no
+pixels. That shape is forced by distribution: a benchmark that needs a corpus
+of gameplay and broadcast footage cannot be shipped, so the answer key has to
+be the only thing that travels. `hypecut label` writes a draft where every
+proposal carries `keep: null` — neither accepted nor rejected — and
+`load_labels` refuses a file where nothing has been decided. An untouched
+draft scored against its own detector would return a perfect score and mean
+nothing, so the loader treats that as an error rather than a result.
+
+**Matching is containment, not overlap.** A clip hits a labelled highlight
+when it contains that highlight's midpoint. IoU-style scores blend two
+independent failures into one number: the detector missed the moment, or the
+detector found it and the rolls framed it badly. Those have different fixes —
+a weight versus `reaction_lag` — so they get separate numbers:
+
+* `recall` — how many labelled moments some clip contains.
+* `coverage` — of the moments that were found, what fraction of their
+  labelled duration survived into the clips. Reported only over found
+  moments, so a miss cannot drag it down and confuse the two failures.
+* `precision` — clips that contain no labelled moment are false alarms. Two
+  clips both containing the same moment are both credited; neither is a false
+  alarm, and penalising the second would be penalising a legitimate choice
+  about pacing.
+
+The synthetic sports fixture demonstrates why the split is not academic. The
+gameplay default and `sports-broadcast` both find the goal — recall,
+precision and F1 all tie at 1.0 — and differ only in coverage, 0.64 against
+1.00, because the default rolls out before the crowd noise that a sports
+profile knows to wait for. One blended number would have called them equal.
+
+Scores are never pooled across annotators. Two people mark different
+highlights in the same match; comparing two profiles against one key is an
+experiment, and averaging across keys is arithmetic on incommensurable
+things.
+
 ## The web layer
 
 One FastAPI app, one background worker thread, an in-memory job store bounded

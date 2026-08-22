@@ -114,6 +114,10 @@ hypecut profiles
 
 # What detectors are available?
 hypecut signals
+
+# Is a profile actually better? Mark a video, then score profiles against it
+hypecut label vod.mp4                       # writes vod.labels.yaml + a sheet
+hypecut eval vod.labels.yaml -p configs/sports-broadcast.yaml -p configs/default.yaml
 ```
 
 ### Python
@@ -314,11 +318,51 @@ Register it under the `hypecut.signals` entry-point group and it appears in
 `hypecut signals` for everyone who installs your package. Same story for
 refiners. See [docs/EXTENDING.md](docs/EXTENDING.md).
 
+## Knowing whether it worked
+
+Every threshold in this project started as a reasoned guess. `hypecut eval`
+is how you find out whether a guess was right — and how a profile PR gets
+reviewed on evidence instead of on the author's confidence.
+
+```bash
+hypecut label match.mp4 --annotator max        # writes match.labels.yaml + a sheet
+# open the sheet, then edit the file: keep: true / keep: false,
+# and add entries by hand for anything it missed
+hypecut eval match.labels.yaml -p configs/default.yaml -p configs/sports-broadcast.yaml
+```
+
+```
+profile               clips        found   prec  recall     F1  cover
+default                   3     1/1        0.33    1.00   0.50   0.54
+sports-broadcast          1     1/1        1.00    1.00   1.00   1.00
+```
+
+Three things about that table are deliberate:
+
+**A clip hits when it *contains* the moment**, not when the edges line up.
+"Did you find it" and "did you frame it well" are different questions with
+different fixes, so they get different columns.
+
+**`cover` is that second question** — how much of the labelled moment
+survived into the clip. Perfect recall with low coverage means the detector
+is right and the rolls are too tight. A single blended score would hide that.
+
+**Labels carry no video.** A labels file is a path plus timestamps, so you
+can publish an answer key for footage you cannot redistribute. It also names
+one annotator: two people mark different highlights in the same match, so
+comparing profiles against one key is an experiment and comparing scores
+across keys is not.
+
+`hypecut label` over-proposes on purpose. Throwing away a bad proposal takes
+a second; noticing a moment nobody proposed takes watching the video, which
+is why the file asks you to add those by hand — they are the failures a score
+would otherwise never see.
+
 ## Roadmap
 
-Near-term: silence-aware trimming, VOD URLs as input, a chat-log signal, a
-proper queue backend for multi-user deployments, and community profiles for
-more games. Details and open design questions in
+Near-term: auto-locating the facecam, wipe detection, VOD URLs as input, a
+chat-log signal, a proper queue backend for multi-user deployments, and
+community profiles for more games. Details and open design questions in
 [docs/ROADMAP.md](docs/ROADMAP.md) — that file is the best place to find
 something to work on.
 

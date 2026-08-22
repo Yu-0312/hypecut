@@ -51,6 +51,16 @@ interesting it is to build. Items marked **help wanted** are good entry points.
 - [x] **An agent-facing surface**: `contact-sheet`, `render --plan`,
       `profiles`, `signals --json`, plus `AGENTS.md` and a skill package.
 
+## Shipped in v0.7
+
+- [x] **Evaluation.** `hypecut label` proposes generously and a human keeps or
+      drops; `hypecut eval` scores any number of profiles against those
+      labels. Labels reference a video by path and carry only timestamps, so
+      an answer key can be shared where the footage cannot. A hit means the
+      clip *contains* the moment; how much of it survived is reported
+      separately as coverage, because "missed it" and "framed it badly" need
+      different fixes.
+
 ## v0.7 — cut points, continued
 
 - [ ] **Auto-locate the facecam.** `react_to_facecam` needs the box to be
@@ -120,15 +130,14 @@ frame. Tennis has rallies: the interesting unit is twenty seconds long and its
 and a rally probably wants the region itself kept whole instead. Nobody has
 designed that yet.
 
-**How do you evaluate any of this?** Every default in the project is a
-reasoned guess verified against synthetic footage, which proves the code does
-what was intended and not that the intention matches real video. There is no
-labelled corpus, no metric and no way to review a profile PR on evidence.
-The blocker is that a benchmark cannot ship the footage — so the format has
-to be labels-only, with users supplying their own video. A `hypecut label`
-command built on `contact-sheet` (propose generously, human keeps or drops)
-would remove the authoring burden without making an AI the ground truth.
-This is the largest open question in the project.
+**What should the metric do about disagreement between annotators?** The
+harness shipped in v0.7 answers "is this profile better than that one *for
+this person*", which is the question a profile PR actually needs. It does not
+answer "is this profile good", because two people mark different highlights
+in the same match and there is no principled way to merge them. A labels file
+records one annotator by name and scores are never pooled across annotators.
+Whether a multi-annotator agreement measure is worth the complexity is
+undecided; nobody has yet collected two keys for the same video to find out.
 
 **Should trimming be allowed to override a snap?** Right now a shot boundary
 always wins, on the grounds that a cut is evidence and a pause is a guess. But

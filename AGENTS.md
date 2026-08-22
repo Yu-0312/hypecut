@@ -124,6 +124,34 @@ A whole folder:
 hypecut batch ~/Recordings -o ~/Reels --recursive
 ```
 
+### 7. If you are choosing between profiles, measure instead of arguing
+
+You will often have two plausible profiles and no way to tell which is
+better from the contact sheets alone. Ask the user for fifteen minutes:
+
+```bash
+hypecut label input.mp4 --annotator them        # draft + a sheet, one tile per proposal
+# they open the sheet, set keep: true/false, and add anything it missed
+hypecut eval input.labels.yaml -p configs/a.yaml -p configs/b.yaml
+```
+
+Read the table the way it is built: `recall` is *did we find it*, `cover` is
+*how much of it survived*. Those fail differently — a miss needs a different
+weight or signal, poor coverage needs `reaction_lag`, `pre_roll` or
+`post_roll`. `prec` falling while recall holds means the percentile is too
+low.
+
+Two rules here:
+
+- **The labels are theirs, not yours.** Do not fill in `keep:` yourself and
+  then score against it — you would be measuring your own agreement with
+  your own detector, which is worth nothing. Propose, hand it over, wait.
+- **Report the numbers you got, including the ones you did not like.** If
+  the profile you recommended lost, say so.
+
+If you tune a profile against a labels file, include the before/after table
+in what you hand the user, and in the PR if they contribute it upstream.
+
 ## What you get back
 
 - `reel.mp4` — the reel, with a chapter marker per clip
@@ -164,6 +192,7 @@ mention that before enabling either.
 | `No video stream found` | not a video, or the file is truncated |
 | `Unknown config key(s)` | a typo in a profile; the message names the key |
 | `Segment N is 0.0s long after clamping` | an edited plan has times outside the source |
+| `no highlights marked` | the labels draft is untouched — the human has not been through it yet |
 
 `hypecut batch` reports per-file failures and carries on; the exit code is
 non-zero if any file failed.

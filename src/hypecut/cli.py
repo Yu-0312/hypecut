@@ -167,6 +167,29 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("--also", action="append", default=None, choices=sorted(VARIANT_PRESETS))
     rp.add_argument("-q", "--quiet", action="store_true")
 
+    lab = sub.add_parser("label", help="draft an answer key from a generous first pass")
+    lab.add_argument("source", help="input video file")
+    lab.add_argument(
+        "-o", "--output", default=None, help="labels file (default: <video>.labels.yaml)"
+    )
+    lab.add_argument("-p", "--profile", help="profile to propose with")
+    lab.add_argument(
+        "--percentile",
+        type=float,
+        default=80.0,
+        help="deliberately low: over-propose, let the human throw things out (default 80)",
+    )
+    lab.add_argument("--max-clips", type=int, default=40)
+    lab.add_argument("--annotator", default="", help="who marked it — scores are per-annotator")
+    lab.add_argument("--no-sheet", action="store_true", help="skip the contact sheet")
+    lab.add_argument("-q", "--quiet", action="store_true")
+
+    ev = sub.add_parser("eval", help="score a profile against one or more answer keys")
+    ev.add_argument("labels", nargs="+", help="labels files written by `hypecut label`")
+    ev.add_argument("-p", "--profile", action="append", default=None, help="profile(s) to score")
+    ev.add_argument("--json", action="store_true", help="machine-readable results")
+    ev.add_argument("-q", "--quiet", action="store_true")
+
     serve = sub.add_parser("serve", help="run the web UI")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
@@ -385,6 +408,120 @@ def _run_render(args: argparse.Namespace, report) -> int:
     return 0
 
 
+def _run_label(args: argparse.Namespace, report) -> int:
+    from .contact import contact_sheet
+    from .evaluation import Labels, write_labels
+    from .pipeline import analyze
+
+    cfg = load_config(args.profile) if args.profile else load_config()
+    cfg = cfg.merged(
+        {
+            "segments": {
+                "percentile": args.percentile,
+                "max_clips": args.max_clips,
+                "target_duration": None,
+            },
+            "refiners": [],
+        }
+    )
+    plan = analyze(args.source, cfg, progress=report)
+    if not plan.segments:
+        print("Nothing proposed — try a lower --percentile.", file=sys.stderr)
+        return 1
+
+    source = Path(args.source)
+    dest = Path(args.output) if args.output else source.with_suffix(".labels.yaml")
+
+    draft = [
+        {
+            "start": round(seg.start, 3),
+            "end": round(seg.end, 3),
+            "keep": None,
+            "why": max(seg.reasons, key=seg.reasons.get) if seg.reasons else "",
+        }
+        for seg in plan.segments
+    ]
+    labels = Labels(
+        video=str(source),
+        highlights=[],
+        annotator=args.annotator,
+        notes="draft — set keep: true/false, and add anything that was missed",
+        profile=args.profile or "",
+    )
+    write_labels(labels, dest, draft=draft)
+
+    sheet = None
+    if not args.no_sheet:
+        sheet, _ = contact_sheet(plan.info, dest.with_suffix(".png"), segments=plan.segments)
+
+    if not args.quiet:
+        print(f"\nDrafted {len(draft)} proposals -> {dest}")
+        if sheet:
+            print(f"Contact sheet         -> {sheet}  (one tile per proposal, in order)")
+        print("\nNext: mark keep: true/false, add anything missed, then")
+        print(f"  hypecut eval {dest} --profile <profile>")
+    return 0
+
+
+def _run_eval(args: argparse.Namespace) -> int:
+    from .evaluation import load_labels, score_plan
+    from .pipeline import analyze
+
+    profiles: list[str | None] = list(args.profile) if args.profile else [None]
+    results: dict[str, list[dict[str, object]]] = {}
+
+    for profile in profiles:
+        cfg = load_config(profile) if profile else load_config()
+        name = Path(profile).stem if profile else "default"
+        rows: list[dict[str, object]] = []
+        for labels_path in args.labels:
+            labels = load_labels(labels_path)
+            plan = analyze(labels.video, cfg)
+            score = score_plan(labels, [(s.start, s.end) for s in plan.segments])
+            rows.append(score.to_dict())
+        results[name] = rows
+
+    if args.json:
+        print(json.dumps(results, indent=2, ensure_ascii=False))
+        return 0
+
+    print(
+        f"{'profile':<20} {'clips':>6} {'found':>12} {'prec':>6} {'recall':>7} {'F1':>6} {'cover':>6}"
+    )
+    for name, rows in results.items():
+        clips = sum(int(r["clips"]) for r in rows)
+        found = sum(int(r["found"]) for r in rows)
+        labelled = sum(int(r["labelled"]) for r in rows)
+        precision = _mean(float(r["precision"]) for r in rows)
+        recall = found / labelled if labelled else 0.0
+        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) else 0.0
+        coverage = _mean(float(r["coverage"]) for r in rows)
+        print(
+            f"{name:<20} {clips:>6} {found:>5}/{labelled:<6} "
+            f"{precision:>6.2f} {recall:>7.2f} {f1:>6.2f} {coverage:>6.2f}"
+        )
+
+    if not args.quiet:
+        for name, rows in results.items():
+            missed = [(r["video"], m) for r in rows for m in r["missed"]]
+            if missed:
+                print(f"\n{name} missed:")
+                for video, item in missed[:12]:
+                    label = f"  {item['label']}" if item.get("label") else ""
+                    print(
+                        f"  {_hhmmss(float(item['start']))}-{_hhmmss(float(item['end']))}"
+                        f"  {Path(str(video)).name}{label}"
+                    )
+                if len(missed) > 12:
+                    print(f"  ... and {len(missed) - 12} more")
+    return 0
+
+
+def _mean(values) -> float:
+    items = list(values)
+    return sum(items) / len(items) if items else 0.0
+
+
 def _parse_box(text: str) -> list[float]:
     """Parse ``x0,y0,x1,y1`` in normalised 0-1 coordinates."""
     try:
@@ -475,6 +612,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "contact-sheet":
             return _run_contact_sheet(args)
+        if args.command == "label":
+            return _run_label(args, _progress(args.quiet))
+        if args.command == "eval":
+            return _run_eval(args)
         if args.command == "render":
             return _run_render(args, _progress(args.quiet))
 

@@ -5,6 +5,51 @@ All notable changes are documented here. This project follows
 
 ## [Unreleased]
 
+## [0.7.0] — evidence
+
+Until this release every default in HypeCut was a reasoned guess, checked
+against footage built to have the property being checked for. That proves the
+code does what was intended; it says nothing about whether the intention
+matches real video, and it left profile PRs unreviewable on evidence. This
+release makes the question answerable.
+
+### Added
+- **`hypecut label VIDEO`** — writes an answer key. It deliberately
+  over-proposes (percentile 80) and marks every proposal `keep: null`, which
+  counts as neither a highlight nor a rejection; a contact sheet is written
+  alongside with one tile per entry. The human sets `keep: true`/`false` and
+  adds entries for anything the detector missed — those matter most, because
+  they are the failures a score would otherwise never see. A draft nobody has
+  been through is rejected rather than scored.
+- **`hypecut eval LABELS… [--profile P]…`** — scores any number of profiles
+  against any number of labels files, as a table or `--json`. This is the
+  command a profile PR should include the output of.
+- **`hypecut.evaluation`** in the API: `Highlight`, `Labels`, `Score`,
+  `load_labels`, `write_labels`, `score_plan`.
+
+### Notes on the metric
+
+Three decisions, each worth disagreeing with:
+
+- **A hit means the clip contains the moment**, not that the edges line up.
+  Overlap scores (IoU and friends) conflate *did you find it* with *did you
+  frame it well*; the second is snapping and trimming's job and is reported
+  separately as **coverage**. Perfect recall with poor coverage means the
+  detector is right and the rolls are too tight — a completely different fix
+  from a detector that misses things.
+- **Labels ship without video.** A benchmark that needs a corpus of gameplay
+  and broadcast footage cannot be distributed, so a labels file references a
+  video by path and carries only timestamps.
+- **One annotator, named in the file.** Comparing two profiles against one
+  annotator is a valid experiment; comparing scores across annotators is not.
+
+On the synthetic sports fixture the harness reproduces exactly the split it
+was built to expose: the gameplay default and `sports-broadcast` both find
+the goal — recall, precision and F1 all tie at 1.0 — and only coverage
+separates them (0.64 vs 1.00), because the default rolls out before the crowd
+does. Had the harness reported a single blended number, that difference would
+have been invisible.
+
 ## [0.6.0] — sound, spans, and agents
 
 ### Added
