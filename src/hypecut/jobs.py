@@ -200,10 +200,23 @@ def _options_to_overrides(options: dict[str, Any]) -> dict[str, Any]:
     if options.get("target_duration") is not None:
         target = float(options["target_duration"])
         seg["target_duration"] = target if target > 0 else None
+    if options.get("snap_to_shots") is not None:
+        seg["snap_to_shots"] = bool(options["snap_to_shots"])
+
+    render: dict[str, Any] = {}
+    reframe: dict[str, Any] = {}
+    if options.get("reframe"):
+        reframe["mode"] = str(options["reframe"])
+    if options.get("reframe_track") is not None:
+        reframe["track"] = bool(options["reframe_track"])
+    if reframe:
+        render["reframe"] = reframe
 
     out: dict[str, Any] = {}
     if seg:
         out["segments"] = seg
+    if render:
+        out["render"] = render
     if options.get("refiners"):
         out["refiners"] = list(options["refiners"])
     if options.get("weights"):

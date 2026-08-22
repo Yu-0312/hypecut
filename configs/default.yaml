@@ -22,6 +22,9 @@ segments:
   percentile: 92.0        # "highlight" = top 8% of excitement
   max_clips: 20
   target_duration: 120.0  # null disables the budget
+  snap_to_shots: true     # move clip edges onto real cuts
+  snap_window: 2.0        # ...travelling at most this far (or the roll, if larger)
+  snap_fine: true         # then re-check at the source frame rate
 
 render:
   crf: 20
@@ -29,5 +32,8 @@ render:
   fade: 0.25
   normalize_audio: true
   write_chapters: true
+  reframe:
+    mode: "off"           # off | crop | stack | blur_pad — see configs/shorts.yaml
+                          # (quoted: unquoted `off` is boolean false in YAML)
 
 refiners: [diversity, pacing]

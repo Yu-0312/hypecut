@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hypecut"
-version = "0.1.0"
+version = "0.2.0"
 description = "Automatic highlight reels for gameplay and esports VODs — upload a video, get the good parts."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -77,6 +77,10 @@ skip-magic-trailing-comma = true
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "C4", "SIM"]
 ignore = ["E501", "B008"]
+
+[tool.ruff.lint.isort]
+# Must match format.skip-magic-trailing-comma above, or the two fight.
+split-on-trailing-comma = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

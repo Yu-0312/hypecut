@@ -19,6 +19,7 @@ from pathlib import Path
 from . import __version__
 from .config import Config, load_config
 from .ffmpeg import FFmpegError, FFmpegNotFound
+from .reframe import MODES as REFRAME_MODES
 
 __all__ = ["main", "build_parser"]
 
@@ -53,6 +54,30 @@ def build_parser() -> argparse.ArgumentParser:
             default=None,
             metavar="NAME",
             help="enable a refiner (repeatable): diversity, pacing, clip_rerank, ...",
+        )
+        p.add_argument(
+            "--no-snap",
+            action="store_true",
+            help="do not move clip edges onto nearby shot boundaries",
+        )
+        p.add_argument(
+            "--snap-window",
+            type=float,
+            metavar="SECONDS",
+            help="how far a clip edge may travel to reach a cut (default 2)",
+        )
+        p.add_argument(
+            "--reframe",
+            choices=REFRAME_MODES,
+            help="reframe for vertical: crop (motion-centred), stack (facecam+game), blur_pad",
+        )
+        p.add_argument(
+            "--vertical", action="store_true", help="shorthand for --reframe crop at 1080x1920"
+        )
+        p.add_argument(
+            "--reframe-track",
+            action="store_true",
+            help="let the vertical crop pan to follow the action instead of holding still",
         )
         p.add_argument("-q", "--quiet", action="store_true")
 
@@ -92,12 +117,31 @@ def _config_from_args(args: argparse.Namespace) -> Config:
         seg["max_duration"] = args.max_duration
     if args.percentile is not None:
         seg["percentile"] = args.percentile
+    if args.no_snap:
+        seg["snap_to_shots"] = False
+    if args.snap_window is not None:
+        seg["snap_window"] = args.snap_window
 
     render: dict[str, object] = {}
     for key in ("width", "height", "crf"):
         value = getattr(args, key, None)
         if value is not None:
             render[key] = value
+
+    reframe: dict[str, object] = {}
+    if args.vertical and not args.reframe:
+        reframe["mode"] = "crop"
+    if args.reframe:
+        reframe["mode"] = args.reframe
+    if args.reframe_track:
+        reframe["track"] = True
+    if reframe:
+        # When reframing is on it owns the output geometry, so --width/--height
+        # have to land there instead of on the (now unused) scale/pad path.
+        for key in ("width", "height"):
+            if render.pop(key, None) is not None:
+                reframe[key] = getattr(args, key)
+        render["reframe"] = reframe
 
     overrides: dict[str, object] = {}
     if seg:
@@ -224,10 +268,23 @@ def _summarise(plan, quiet: bool) -> None:
         f"from {plan.info.duration:.1f}s source "
         f"({plan.total_duration / max(plan.info.duration, 1e-9) * 100:.1f}% kept)"
     )
+    snapped = sum(1 for s in plan.segments if s.meta.get("snapped"))
+    if snapped:
+        print(f"{snapped}/{len(plan.segments)} clips moved onto a shot boundary")
     for seg in plan.segments:
         top = max(seg.reasons, key=seg.reasons.get) if seg.reasons else "-"
+        notes = []
+        if seg.meta.get("snapped"):
+            notes.append(
+                "snap " + " ".join(f"{k}{v:+.2f}s" for k, v in seg.meta["snapped"].items())
+            )
+        if seg.meta.get("reframe"):
+            plan_ = seg.meta["reframe"]
+            notes.append(str(plan_.get("mode")) + ("/pan" if "keyframes" in plan_ else ""))
+        suffix = f"  [{'; '.join(notes)}]" if notes else ""
         print(
-            f"  {_hhmmss(seg.start)}–{_hhmmss(seg.end)}  score {seg.score:.3f}  top signal: {top}"
+            f"  {_hhmmss(seg.start)}–{_hhmmss(seg.end)}  score {seg.score:.3f}  "
+            f"top signal: {top}{suffix}"
         )
 
 

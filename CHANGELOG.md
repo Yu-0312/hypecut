@@ -5,6 +5,30 @@ All notable changes are documented here. This project follows
 
 ## [Unreleased]
 
+## [0.2.0] — cut points and vertical
+
+### Added
+- **Shot-boundary snapping** (on by default). Clip edges move onto real cuts
+  instead of landing mid-shot: coarse detection on the analysis frames, then a
+  frame-exact pass at the source frame rate. Guards keep the peak inside the
+  clip and refuse snaps that would break the length budget.
+  `--no-snap` / `--snap-window` on the CLI, `segments.snap_*` in profiles.
+- **Vertical reframing** for Shorts/Reels/TikTok: `crop` (9:16 slice centred on
+  the motion, optionally panning to follow it), `stack` (facecam over gameplay)
+  and `blur_pad`. `--vertical`, `--reframe MODE`, `--reframe-track`, or
+  `render.reframe` in a profile. Crop decisions are recorded in the sidecar.
+- `configs/shorts.yaml` — a vertical-first profile.
+- Web UI controls for framing mode, pan-to-follow and snapping; per-clip badges
+  showing which edges were snapped and how each clip was framed.
+- `hypecut.ffmpeg.decode_gray_frames` accepts `start` / `duration`, so a window
+  can be re-decoded at native frame rate without touching the rest of the file.
+
+### Changed
+- Config sections nest arbitrarily now (`render.reframe.*`); `_from_dict`
+  resolves real types instead of a hardcoded section list.
+- A bare `off` in YAML (which parses as boolean `false`) is accepted as the
+  `off` reframe mode rather than failing later with a confusing message.
+
 ## [0.1.0] — first release
 
 ### Added

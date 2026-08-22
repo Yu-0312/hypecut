@@ -28,7 +28,11 @@ VideoInfo ──► AnalysisContext ──► [SignalTrack] ──► curve ─�
                                                                    │
                                                         refiners ──┤ stage 2
                                                                    │
-                                              merge + select ──► HighlightPlan
+                                              merge + select ──────┤
+                                                                   │
+                                     snapping + reframe planning ──┤ post
+                                                                   │
+                                                        HighlightPlan
                                                                    │
                                                          render ──►  mp4 + json + edl
 ```
@@ -142,6 +146,82 @@ One deliberate exception: if the first clip alone busts the duration budget it
 is admitted anyway. A too-tight budget should produce a short reel, never an
 empty one.
 
+## Post-selection: snapping and reframing
+
+Two steps run after selection and before rendering. Both need the decoded
+frames, and both are decisions about *the cut* rather than about the encode —
+so they live on the analysis side and travel to the renderer inside each
+clip's metadata. That keeps `analyze()` / `render_plan()` split intact: a
+caller can inspect or edit the plan, and the sidecar JSON records exactly what
+was decided.
+
+### Shot-boundary snapping (`snapping.py`)
+
+Where an edge lands is the most visible difference between an auto-cut and a
+hand-cut reel. Three seconds of wind-up is a guess; a hard cut two seconds
+before the peak is *evidence*. So every edge may travel to the nearest real
+boundary.
+
+Detection is coarse-then-fine. Frame difference over a running median gives
+"how unusual is this difference for this stretch of video", which is what a cut
+actually is — raw difference is useless, because a chaotic teamfight differs
+more frame-to-frame than a hard cut in a menu does. Peaks above 2.5× baseline
+become candidate boundaries; each accepted edge is then re-decoded at the
+source frame rate over a one-second window, turning a ±50 ms answer into a
+frame-exact one for the cost of a few dozen tiny frames.
+
+Three rules keep it honest:
+
+* **The peak is a hard stop.** No edge may cross it — that moment is the
+  entire reason the clip exists.
+* **The in-point and out-point are not symmetric.** The in-point may move
+  right up to the peak: if a hard cut sits between the old start and the peak,
+  the wind-up it would have kept belonged to a *different scene*, and opening
+  on unrelated footage is worse than opening tight. The out-point keeps a
+  guard, because there is no equivalent argument for cutting the payoff short.
+* **A snap that breaks the length budget is refused, not clamped.** A clip
+  suddenly a second under `min_duration` is a worse outcome than an unsnapped
+  edge.
+
+The travel allowance is `max(snap_window, pre_roll)`. A fixed 2 s window can
+never reach the cut that started the scene when the pre-roll placed the edge
+3 s earlier, and that is precisely the case snapping exists for.
+
+Rounding is deliberately late rather than early: the returned time is the
+frame *after* the largest difference. One frame late is invisible; one frame
+early shows a flash of the outgoing shot — exactly the artefact this removes.
+
+### Vertical reframing (`reframe.py`)
+
+A 16:9 clip in a 9:16 slot loses two thirds of its height. Three ways out:
+
+* **`crop`** — a 9:16 slice, positioned from motion energy. Column-wise motion
+  mass summed over rows gives a distribution across the frame; its centroid is
+  where things are happening. A crude estimator is fine here: the crop is 56%
+  of the frame wide, so it only has to be right to within a few percent.
+* **`stack`** — facecam pane over gameplay pane, both from normalised boxes in
+  the profile. No analysis needed.
+* **`blur_pad`** — the whole frame over a blurred blow-up of itself. Loses
+  nothing, wastes half the screen; the right default when the important thing
+  might be anywhere (minimaps, scoreboards).
+
+Panning is off by default. A crop that chases every centroid wobble reads as
+camera drift, and a still frame placed at the *median* of the action is what
+most hand-made vertical edits do. With `track: true` the centre is smoothed
+over ~2.5 s and then velocity-limited, which turns a subject teleporting across
+the screen into a slow push instead of a jump — what a camera operator would
+do, and what a viewer can follow.
+
+The pan becomes a piecewise-linear ffmpeg expression over a handful of
+keyframes rather than a per-frame command stream. It is bounded in size, it
+survives being written to and read back from JSON, and it needs no extra
+tooling — at the cost of straight-line interpolation between keyframes, which
+at six keyframes over a ten-second clip is imperceptible.
+
+One constraint shapes the code: the whole filter chain is a single argv token,
+so no filter string may contain whitespace, and expressions carrying commas are
+single-quoted so ffmpeg does not read them as filter separators.
+
 ## Rendering
 
 Two-pass: every segment is re-encoded to an identical intermediate, then joined
@@ -181,6 +261,10 @@ serialisation.
   by nature and a schema is a maintenance burden a v0.1 should not carry.
 * **No model in the default path.** The tool must work fully offline on a CPU
   with nothing downloaded. Models are opt-in extras, never a hard dependency.
+* **No optical flow or object tracking for reframing.** Motion centroid on
+  already-decoded frames is ~free and good enough for a crop that wide. A
+  tracker would add a dependency, a model, and failure modes, to move the crop
+  by a few percent.
 * **No per-game hardcoding in Python.** Game knowledge lives in YAML profiles.
   A contributor who knows Rocket League should not have to learn this codebase
   to encode what they know.

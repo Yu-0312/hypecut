@@ -32,6 +32,7 @@ segments:
   percentile: 94.0
   max_clips: 16
   target_duration: 150.0
+  snap_window: 2.0        # round transitions and killcams are the cuts here
 
 refiners: [diversity, pacing]
 refiner_params:

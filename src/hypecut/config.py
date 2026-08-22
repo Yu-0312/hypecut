@@ -9,9 +9,16 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass, field, fields, is_dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, get_type_hints
 
-__all__ = ["SignalConfig", "SegmentConfig", "RenderConfig", "Config", "load_config"]
+__all__ = [
+    "SignalConfig",
+    "SegmentConfig",
+    "ReframeConfig",
+    "RenderConfig",
+    "Config",
+    "load_config",
+]
 
 
 @dataclass
@@ -63,6 +70,50 @@ class SegmentConfig:
     target_duration: float | None = 120.0
     min_score: float = 0.0
 
+    # Shot-boundary snapping. A clip edge that lands mid-shot reads as a slice;
+    # the same edge moved half a second onto a real cut reads as an edit.
+    snap_to_shots: bool = True
+    snap_window: float = 2.0  # how far an edge may travel to reach a boundary
+    snap_fine: bool = True  # re-check at native frame rate for frame accuracy
+    snap_guard: float = 0.75  # minimum footage kept after the peak when snapping the end
+
+
+@dataclass
+class ReframeConfig:
+    """Turning a landscape capture into a vertical (or square) crop.
+
+    ``mode``
+        ``off``       leave the framing alone (default)
+        ``crop``      motion-centred crop — the usual choice for gameplay
+        ``stack``     facecam on top, gameplay below (the classic Shorts look)
+        ``blur_pad``  whole frame letterboxed over a blurred enlargement
+    """
+
+    mode: str = "off"
+    width: int = 1080
+    height: int = 1920
+    track: bool = False  # let the crop pan to follow the action
+    smooth_seconds: float = 2.5
+    max_pan: float = 0.10  # fraction of frame width the crop may travel per second
+    keyframes: int = 6  # pan resolution; more means a longer filter expression
+    facecam: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.28, 0.28])
+    gameplay: list[float] = field(default_factory=lambda: [0.0, 0.0, 1.0, 1.0])
+    facecam_share: float = 0.32  # portion of output height for the facecam pane
+    blur_sigma: float = 24.0
+
+    def __post_init__(self) -> None:
+        # YAML 1.1 reads a bare `off` as the boolean False, so the most natural
+        # way to write "no reframing" in a profile silently produces the wrong
+        # type. Accept it rather than failing three stages later with a
+        # confusing message about mode `False`.
+        if self.mode is False:
+            self.mode = "off"
+        if self.mode is True:
+            raise ValueError(
+                "render.reframe.mode is `true` — YAML read a bare `on` as a boolean. "
+                'Quote the mode name, e.g. mode: "crop".'
+            )
+
 
 @dataclass
 class RenderConfig:
@@ -79,6 +130,7 @@ class RenderConfig:
     fade: float = 0.25
     normalize_audio: bool = True
     write_chapters: bool = True
+    reframe: ReframeConfig = field(default_factory=ReframeConfig)
 
 
 @dataclass
@@ -137,24 +189,29 @@ def _deep_merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
 
 
 def _from_dict(cls: type, data: dict[str, Any]) -> Any:
+    """Rebuild a (possibly nested) config dataclass from plain dicts.
+
+    Annotations in this module are strings, because of ``from __future__
+    import annotations``, so the real types have to come from
+    ``get_type_hints``. That is what lets an arbitrarily nested section such
+    as ``render.reframe`` be reconstructed without this function knowing any
+    field names.
+    """
     if not is_dataclass(cls):
         return data
-    kwargs: dict[str, Any] = {}
-    known = {f.name: f for f in fields(cls)}
-    for name, f in known.items():
-        if name not in data:
-            continue
-        value = data[name]
-        if is_dataclass(f.type) and isinstance(value, dict):
-            kwargs[name] = _from_dict(f.type, value)  # type: ignore[arg-type]
-        elif isinstance(value, dict) and name in {"signals", "segments", "render"}:
-            kwargs[name] = _from_dict(
-                {"signals": SignalConfig, "segments": SegmentConfig, "render": RenderConfig}[name],
-                value,
-            )
-        else:
-            kwargs[name] = value
-    unknown = set(data) - set(known)
+    hints = get_type_hints(cls)
+    known = {f.name for f in fields(cls)}
+
+    unknown = set(data) - known
     if unknown:
         raise ValueError(f"Unknown config key(s) for {cls.__name__}: {', '.join(sorted(unknown))}")
+
+    kwargs: dict[str, Any] = {}
+    for name in known & set(data):
+        value = data[name]
+        hint = hints.get(name)
+        if isinstance(value, dict) and is_dataclass(hint):
+            kwargs[name] = _from_dict(hint, value)  # type: ignore[arg-type]
+        else:
+            kwargs[name] = value
     return cls(**kwargs)

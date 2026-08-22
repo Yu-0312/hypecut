@@ -106,6 +106,21 @@ class FaceReaction(Refiner):
 middle of a two-hour job has destroyed the run for a feature the user did not
 ask to be mandatory. Report and continue.
 
+## What is *not* a plugin
+
+Shot-boundary snapping and vertical reframing are core pipeline stages, not
+signals or refiners. Both need the decoded frames, which refiners deliberately
+do not get — a refiner sees candidates, so that an expensive model never has to
+touch the whole video. Rather than widen that contract, the two stages run
+after selection inside `pipeline.analyze()` and are configured through
+`segments.snap_*` and `render.reframe.*`.
+
+If you want to change how they behave, tune the profile first
+(`snap_window`, `snap_guard`, `reframe.max_pan`, `reframe.keyframes`). If you
+need genuinely different behaviour, `snapping.find_boundaries` and
+`reframe.action_track` are plain functions over numpy arrays and are the right
+places to start.
+
 ## Shipping as a package
 
 Declare entry points and HypeCut discovers your plugin on install — it will

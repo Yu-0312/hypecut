@@ -23,6 +23,7 @@ segments:
   percentile: 90.0
   max_clips: 10
   target_duration: 240.0
+  snap_to_shots: false    # a single locked-off camera has no cuts to snap to
 
 refiners: [diversity, pacing, speech_keywords]
 refiner_params:

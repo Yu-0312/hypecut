@@ -3,31 +3,39 @@
 Ordered by *how much it improves the output per unit of work*, not by how
 interesting it is to build. Items marked **help wanted** are good entry points.
 
-## v0.2 — better cut points
+## Shipped in v0.2
 
-The single biggest quality gap today is that clips start and end at arbitrary
-frames rather than at natural boundaries.
+- [x] **Shot-boundary snapping.** Clip edges travel up to `max(snap_window,
+      pre_roll)` seconds to land on a real cut, coarse-detected on the analysis
+      frames and then refined at the source frame rate.
+- [x] **Vertical reframing.** `crop` (motion-centred, optionally panning),
+      `stack` (facecam over gameplay) and `blur_pad`, planned during analysis
+      and recorded in the sidecar.
 
-- [ ] **Shot-boundary snapping.** Detect cuts in a ±2 s neighbourhood of each
-      clip edge and snap to them. Free, and it makes reels look edited rather
-      than sliced. **help wanted**
+## v0.3 — better cut points, continued
+
 - [ ] **Silence-aware trimming.** Pull the out-point back to the first pause
-      after the reaction instead of a fixed post-roll.
+      after the reaction instead of a fixed post-roll. Snapping fixed the
+      *visual* edges; this is the audio half of the same problem. **help wanted**
 - [ ] **Beat/loudness-aware transitions.** Crossfade lengths that follow the
       audio instead of a constant 0.25 s.
+- [ ] **Face-aware reframing.** When a facecam is present, bias the `crop`
+      centre toward it during reaction beats and toward the action otherwise.
+      Needs an optional face detector, so it belongs behind an extra. **help wanted**
+- [ ] **Dissolve detection.** Snapping only finds hard cuts today; fades and
+      wipes are missed. **help wanted**
 
-## v0.3 — reach
+## v0.4 — reach
 
-- [ ] **Vertical reframing** for Shorts/TikTok/Reels: per-clip 9:16 crop that
-      follows the action (or a fixed facecam + gameplay stack). Frequently the
-      first thing anyone asks for. **help wanted**
 - [ ] **Twitch/YouTube VOD URLs as input**, via yt-dlp as an optional extra.
 - [ ] **Chat-log signal.** Twitch chat message rate is close to a free
       human-labelled highlight track. Needs a log format adapter. **help wanted**
 - [ ] **Batch mode**: point at a folder, get one reel per file, or one reel
       across all of them.
+- [ ] **One source, both aspect ratios** in a single pass — landscape reel plus
+      vertical cutdowns, sharing the analysis.
 
-## v0.4 — deployments with more than one user
+## v0.5 — deployments with more than one user
 
 - [ ] Pluggable queue backend (RQ or arq) behind the existing `JobStore`
       interface; the in-process worker stays the default.
@@ -61,6 +69,12 @@ calibration data we don't have.
 CLIP at judging candidates, but it breaks the "works fully offline, sends
 nothing anywhere" guarantee. Current thinking: acceptable as an explicitly
 opt-in refiner with a loud disclosure, never as a default. Not yet built.
+
+**How far should a crop be allowed to pan?** The velocity cap
+(`reframe.max_pan`, 10% of frame width per second) is a guess calibrated on
+shooters. Racing and sports footage probably want more; a locked-camera MOBA
+wants none. Per-profile values exist but nobody has tuned them against real
+footage yet.
 
 **Should HypeCut ever re-order clips by score instead of time?** Chronological
 order tells the match's story; score order front-loads the payoff, which is how

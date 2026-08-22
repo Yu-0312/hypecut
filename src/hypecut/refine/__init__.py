@@ -3,13 +3,7 @@
 from __future__ import annotations
 
 from . import builtin as _builtin  # noqa: F401
-from .base import (  # noqa: F401
-    Refiner,
-    available_refiners,
-    build_refiners,
-    get_refiner,
-    register,
-)
+from .base import Refiner, available_refiners, build_refiners, get_refiner, register  # noqa: F401
 
 _PLUGINS_LOADED = False
 

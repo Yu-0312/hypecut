@@ -25,6 +25,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .. import __version__
 from ..jobs import JobStore
+from ..reframe import MODES as REFRAME_MODES
 
 DATA_DIR = Path(os.environ.get("HYPECUT_DATA_DIR", "./hypecut-data")).resolve()
 MAX_UPLOAD_MB = int(os.environ.get("HYPECUT_MAX_UPLOAD_MB", "4096"))
@@ -67,6 +68,7 @@ def meta() -> dict[str, Any]:
         "refiners": available_refiners(),
         "max_upload_mb": MAX_UPLOAD_MB,
         "allowed_suffixes": sorted(ALLOWED_SUFFIXES),
+        "reframe_modes": list(REFRAME_MODES),
         "profiles": sorted(p.name for p in Path("configs").glob("*.yaml"))
         if Path("configs").is_dir()
         else [],
@@ -83,8 +85,15 @@ async def create_job(
     max_duration: float = Form(20.0),
     refiners: str = Form("diversity,pacing"),
     profile: str = Form(""),
+    reframe: str = Form("off"),
+    reframe_track: bool = Form(False),
+    snap_to_shots: bool = Form(True),
 ) -> JSONResponse:
     suffix = Path(file.filename or "").suffix.lower()
+    if reframe not in REFRAME_MODES:
+        raise HTTPException(
+            status_code=422, detail=f"Unknown reframe mode {reframe!r}; expected {REFRAME_MODES}"
+        )
     if suffix not in ALLOWED_SUFFIXES:
         raise HTTPException(
             status_code=415,
@@ -114,6 +123,9 @@ async def create_job(
         "max_duration": max_duration,
         "refiners": [r.strip() for r in refiners.split(",") if r.strip()],
         "profile": profile or None,
+        "reframe": reframe,
+        "reframe_track": reframe_track,
+        "snap_to_shots": snap_to_shots,
     }
     job = store.submit(safe_name, dest, options)
     return JSONResponse({"id": job.id, "status": job.status.value}, status_code=202)

@@ -16,6 +16,7 @@ from pathlib import Path
 
 from .config import RenderConfig
 from .ffmpeg import cmd, require_ffmpeg, run
+from .reframe import geometry_filters
 from .types import Candidate, VideoInfo
 
 __all__ = ["render_reel", "write_chapters_file", "write_edl"]
@@ -64,7 +65,11 @@ def render_reel(
 
 def _encode_segment(info: VideoInfo, seg: Candidate, dest: Path, cfg: RenderConfig) -> None:
     filters = []
-    if cfg.width and cfg.height:
+    if cfg.reframe.mode != "off":
+        # Reframing decides the whole geometry; a scale/pad on top of it would
+        # only undo the crop it just made.
+        filters.extend(geometry_filters(info, seg, cfg.reframe))
+    elif cfg.width and cfg.height:
         filters.append(
             f"scale={cfg.width}:{cfg.height}:force_original_aspect_ratio=decrease,"
             f"pad={cfg.width}:{cfg.height}:-1:-1:color=black"

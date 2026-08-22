@@ -12,9 +12,10 @@ hypecut cut vod.mp4 -o reel.mp4 --target 120
 
 ```
 3 clips, 118.4s reel from 5412.0s source (2.2% kept)
-  00:14:22–00:14:41  score 0.912  top signal: roi_activity
-  00:41:07–00:41:29  score 0.884  top signal: audio_transient
-  01:22:55–01:23:31  score 0.871  top signal: audio_rms
+3/3 clips moved onto a shot boundary
+  00:14:22–00:14:41  score 0.912  top signal: roi_activity     [snap start-0.84s]
+  00:41:07–00:41:29  score 0.884  top signal: audio_transient  [snap start-1.20s end+0.43s]
+  01:22:55–01:23:31  score 0.871  top signal: audio_rms        [snap end+0.67s]
 ```
 
 Or run the web UI and drag the file onto the page:
@@ -80,6 +81,11 @@ hypecut cut vod.mp4 --target 90 --max-clips 8 --percentile 95
 # Use a game profile and turn on the CLIP reranker
 hypecut cut vod.mp4 --profile configs/fps-shooter.yaml --refiner clip_rerank
 
+# Vertical for Shorts/Reels/TikTok — crop follows the action
+hypecut cut vod.mp4 --vertical --reframe-track
+hypecut cut vod.mp4 --profile configs/shorts.yaml
+hypecut cut vod.mp4 --reframe stack      # facecam on top, gameplay below
+
 # See the cut list without spending an encode
 hypecut analyze vod.mp4 --json plan.json
 
@@ -113,17 +119,24 @@ video ─┤ decode×1 ├─► 10 Hz grid: tiny grayscale frames + mono audio
             ├─► audio_rms ───────┐
             ├─► audio_transient ─┤
             ├─► scene_change ────┼─► normalise → weight → sum → smooth
-            ├─► motion ──────────┤        (the excitement curve)
+            ├─► motion ──────────┤       = the excitement curve
             └─► roi_activity ────┘
-                                          │
-                        top-N% regions ───┴──► candidates (+pre/post roll)
-                                                   │
-                     stage 2 · refiners ───────────┤   diversity, pacing,
-                     (candidates only)             │   clip_rerank, speech_keywords
-                                                   │
-                          merge → budget select ───┴──► ffmpeg cut + concat
-                                                          │
-                                        reel.mp4 · .hypecut.json · .edl
+                                 │
+                                 ▼
+                   top-N% regions → candidates (+ pre/post roll)
+                                 │
+        stage 2 · refiners ──────┤  diversity · pacing
+        (candidates only)        │  clip_rerank · speech_keywords
+                                 ▼
+                        merge → budget select
+                                 │
+         snap edges to real cuts ┤  ±2 s, coarse then frame-exact
+        plan the 9:16 crop ──────┤  from where the motion is
+                                 ▼
+                        ffmpeg cut + concat
+                                 │
+                                 ▼
+              reel.mp4 · .hypecut.json · .edl
 ```
 
 The video is decoded exactly once, into a 96×54 grayscale plane at 10 Hz and
@@ -135,6 +148,21 @@ Signals are normalised with median/MAD rather than mean/σ, so a single
 explosion can't flatten the rest of the curve into noise. Clips are grown
 around their peak, not their leading edge, so the wind-up survives — a kill
 without the approach reads as a jump cut.
+
+**Edges land on real cuts.** Before rendering, every clip edge is allowed to
+travel up to a couple of seconds to reach an actual shot boundary — a round
+transition, a killcam, a scene switch. A clip that starts three frames into a
+continuous shot looks *sliced*; the same clip started on the cut looks
+*edited*. Boundaries are found on the 10 Hz frames already in memory, then
+each accepted edge is re-checked at the source frame rate. Nothing may cross
+the clip's peak, and a snap that would break the length budget is refused.
+
+**Vertical is a crop, not a letterbox.** `--vertical` takes a 9:16 slice
+centred on where the motion actually is, computed per clip from the same
+decoded frames. Add `--reframe-track` and the crop pans to follow the action,
+velocity-limited so it reads as a camera push rather than a twitch. The
+alternatives are there too: `--reframe stack` for facecam-over-gameplay, and
+`--reframe blur_pad` when the whole frame matters.
 
 Full detail in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -148,6 +176,7 @@ A profile is a small YAML file. Shipped ones:
 | `fps-shooter.yaml` | VALORANT, CS2, R6 | kill-feed ROI weighted heavily, short tight clips |
 | `moba.yaml` | LoL, Dota 2 | long pre-roll for the engage, caster voice band |
 | `just-chatting.yaml` | talk streams, podcasts | visual signals off, long clips, keyword boost |
+| `shorts.yaml` | Shorts / Reels / TikTok | 9:16 tracking crop, picky, short punchy clips |
 
 Copy one, change numbers, pass `--profile my.yaml`. No Python required.
 
@@ -180,9 +209,9 @@ refiners. See [docs/EXTENDING.md](docs/EXTENDING.md).
 
 ## Roadmap
 
-Near-term: shot-boundary-aware cut points, per-clip vertical reframing for
-Shorts/TikTok, a proper queue backend for multi-user deployments, and community
-profiles for more games. Details and open design questions in
+Near-term: silence-aware trimming, VOD URLs as input, a chat-log signal, a
+proper queue backend for multi-user deployments, and community profiles for
+more games. Details and open design questions in
 [docs/ROADMAP.md](docs/ROADMAP.md) — that file is the best place to find
 something to work on.
 

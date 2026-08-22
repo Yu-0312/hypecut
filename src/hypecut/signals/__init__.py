@@ -9,13 +9,7 @@ from __future__ import annotations
 
 from . import audio as _audio  # noqa: F401
 from . import visual as _visual  # noqa: F401
-from .base import (  # noqa: F401
-    Signal,
-    available_signals,
-    build_signals,
-    get_signal,
-    register,
-)
+from .base import Signal, available_signals, build_signals, get_signal, register  # noqa: F401
 
 _PLUGINS_LOADED = False
 

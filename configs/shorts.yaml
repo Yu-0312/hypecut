@@ -1,0 +1,57 @@
+# Vertical clips for Shorts / Reels / TikTok.
+#
+# Everything here follows from one fact: the viewer decides in about two
+# seconds, on a phone, with the sound possibly off. So clips are short, the
+# in-point sits close to the payoff, and the frame is cropped to 9:16 around
+# whatever is moving rather than letterboxed.
+#
+# Switch `mode` to `stack` if your capture has a facecam worth keeping (set
+# the `facecam` box to match your layout), or to `blur_pad` for footage where
+# the interesting thing might be anywhere on screen — minimaps, scoreboards.
+profile: shorts
+
+signals:
+  enabled: [audio_rms, audio_transient, scene_change, motion, roi_activity]
+  weights:
+    audio_rms: 0.9
+    audio_transient: 1.4 # the payoff has to arrive fast
+    scene_change: 0.6
+    motion: 0.9
+    roi_activity: 1.2
+  smooth_seconds: 1.0
+
+segments:
+  min_duration: 6.0
+  max_duration: 22.0
+  pre_roll: 2.0 # short wind-up; the hook has to land immediately
+  post_roll: 2.0
+  merge_gap: 2.0
+  percentile: 95.0 # be picky — one clip is the whole video here
+  max_clips: 6
+  target_duration: 60.0
+  snap_to_shots: true
+  snap_window: 2.0
+
+render:
+  crf: 21
+  fade: 0.15
+  reframe:
+    mode: crop
+    width: 1080
+    height: 1920
+    track: true # the action moves; so does the crop
+    smooth_seconds: 2.0
+    max_pan: 0.12
+    keyframes: 8
+    # Used only when mode is `stack` — normalised [x0, y0, x1, y1] boxes.
+    facecam: [0.0, 0.0, 0.26, 0.30]
+    gameplay: [0.0, 0.0, 1.0, 1.0]
+    facecam_share: 0.32
+
+refiners: [diversity, pacing]
+refiner_params:
+  pacing:
+    ideal: 11.0
+    tolerance: 5.0
+  diversity:
+    min_gap: 90.0

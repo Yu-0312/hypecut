@@ -25,10 +25,12 @@ from .config import Config, load_config
 from .fusion import fuse
 from .refine import build_refiners
 from .refine import load_plugins as load_refiner_plugins
+from .reframe import plan_reframe
 from .render import render_reel, write_edl
 from .segments import build_candidates, merge, select
 from .signals import build_signals
 from .signals import load_plugins as load_signal_plugins
+from .snapping import snap_segments
 from .types import AnalysisContext, HighlightPlan, SignalTrack, VideoInfo
 
 __all__ = ["analyze", "render_plan", "run", "PipelineResult", "Progress"]
@@ -94,6 +96,16 @@ def analyze(
 
     progress(0.85, "selecting")
     segments = select(merge(candidates, cfg.segments), cfg.segments)
+
+    # Both of these need the decoded frames, and both are decisions about the
+    # cut rather than about the encode — so they belong here, on the analysis
+    # side, and travel to the renderer inside each clip's metadata.
+    if cfg.segments.snap_to_shots:
+        progress(0.90, "snapping to shot boundaries")
+        segments = snap_segments(ctx, segments, cfg.segments)
+    if cfg.render.reframe.mode != "off":
+        progress(0.95, "planning reframe")
+        segments = plan_reframe(ctx, segments, cfg.render.reframe)
 
     return HighlightPlan(info=info, segments=segments, curve=curve, times=ctx.times, tracks=tracks)
 

@@ -123,17 +123,33 @@ def decode_audio(path: str | Path, sr: int = 16_000) -> np.ndarray:
 
 
 def decode_gray_frames(
-    path: str | Path, *, fps: float, width: int = 96, height: int = 54
+    path: str | Path,
+    *,
+    fps: float,
+    width: int = 96,
+    height: int = 54,
+    start: float | None = None,
+    duration: float | None = None,
 ) -> np.ndarray:
     """Decode the video as tiny grayscale frames sampled at ``fps``.
 
     A 96x54 luma plane is ~5 KB per frame, so an hour of footage at 10 Hz
     fits comfortably in memory (~180 MB) while still carrying enough detail
     for scene-change, motion and region-of-interest signals.
+
+    ``start`` / ``duration`` decode only a window, which is how the shot
+    snapper affords a second pass at the source frame rate: a two-second
+    window at 60 fps is 120 frames, not an hour of them.
     """
+    seek = ""
+    if start is not None:
+        seek += f"-accurate_seek -ss {max(0.0, start):.3f} "
+    if duration is not None:
+        seek += f"-t {max(0.01, duration):.3f} "
     raw = run(
         cmd(
-            "ffmpeg -v error -nostdin -i {src} -an -map 0:v:0 -vf {vf} -pix_fmt gray -f rawvideo -",
+            f"ffmpeg -v error -nostdin {seek}-i {{src}} -an -map 0:v:0 -vf {{vf}} "
+            "-pix_fmt gray -f rawvideo -",
             src=str(path),
             vf=f"fps={fps},scale={width}:{height}:flags=fast_bilinear",
         ),

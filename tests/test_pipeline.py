@@ -101,3 +101,53 @@ def test_shipped_profiles_run_end_to_end(sample_vod):
     for path in sorted(root.glob("*.yaml")):
         cfg = load_config(path).merged({"segments": {"percentile": 80}, "refiners": []})
         analyze(sample_vod, cfg)  # must not raise
+
+
+@requires_ffmpeg
+def test_clips_land_on_the_synthetic_shot_boundaries(sample_vod):
+    """The fixture is concatenated at 15/20/35/40 s — real cuts to snap to."""
+    cfg = Config().merged(
+        {"segments": {"percentile": 85, "min_duration": 3.0, "target_duration": 40.0}}
+    )
+    plan = analyze(sample_vod, cfg)
+    assert plan.segments
+
+    cuts = [15.0, 20.0, 35.0, 40.0]
+    snapped = [s for s in plan.segments if s.meta.get("snapped")]
+    assert snapped, "expected at least one edge to reach a boundary"
+    for seg in snapped:
+        for edge in ("start", "end"):
+            if edge in seg.meta["snapped"]:
+                value = getattr(seg, edge)
+                assert min(abs(value - c) for c in cuts) < 0.2, (
+                    f"{edge} at {value:.2f}s is not on a cut"
+                )
+
+
+@requires_ffmpeg
+def test_snapping_can_be_switched_off(sample_vod):
+    cfg = Config().merged({"segments": {"percentile": 85, "snap_to_shots": False}})
+    plan = analyze(sample_vod, cfg)
+    assert all("snapped" not in s.meta for s in plan.segments)
+
+
+@requires_ffmpeg
+@pytest.mark.parametrize("mode", ["crop", "stack", "blur_pad"])
+def test_vertical_reel_renders_at_the_requested_size(sample_vod, tmp_path, mode):
+    from hypecut.ffmpeg import probe
+
+    out = tmp_path / f"{mode}.mp4"
+    cfg = Config().merged(
+        {
+            "segments": {"percentile": 88, "target_duration": 12.0},
+            "render": {
+                "fade": 0.1,
+                "reframe": {"mode": mode, "width": 540, "height": 960, "track": mode == "crop"},
+            },
+        }
+    )
+    result = run(sample_vod, out, cfg)
+
+    reel = probe(out)
+    assert (reel.width, reel.height) == (540, 960)
+    assert all(s.meta.get("reframe", {}).get("mode") == mode for s in result.plan.segments)

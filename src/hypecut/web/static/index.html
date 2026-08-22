@@ -82,7 +82,8 @@
   .clip .why { font-size: 12px; color: var(--muted); }
   .clip .sc { font: 600 12px var(--mono); color: var(--accent-2); }
   .empty { color: var(--muted); font-size: 14px; }
-  video { width: 100%; border-radius: 10px; margin-top: 12px; background: #000; }
+  video { width: 100%; max-height: 58vh; object-fit: contain;
+    border-radius: 10px; margin-top: 12px; background: #000; }
   a.dl { display: inline-block; margin-top: 12px; color: var(--accent-2); font-size: 14px; }
   .err { color: var(--accent); font-size: 14px; white-space: pre-wrap; }
   canvas { width: 100%; height: 64px; display: block; margin-top: 10px; }
@@ -137,12 +138,25 @@
       <label>Refiners</label>
       <div class="chips" id="refiners"></div>
 
+      <h2 style="margin-top:24px">3 · Framing</h2>
+      <label>Aspect</label>
+      <div class="chips" id="reframe">
+        <span class="chip on" data-mode="off">16:9 original</span>
+        <span class="chip" data-mode="crop" title="Crop to 9:16 centred on the action">9:16 crop</span>
+        <span class="chip" data-mode="stack" title="Facecam on top, gameplay below">9:16 stack</span>
+        <span class="chip" data-mode="blur_pad" title="Whole frame over a blurred backdrop">9:16 blurred</span>
+      </div>
+      <div class="chips" style="margin-top:10px">
+        <span class="chip" id="track" title="Let the crop pan to follow the action">pan to follow</span>
+        <span class="chip on" id="snap" title="Move clip edges onto nearby shot boundaries">snap to cuts</span>
+      </div>
+
       <button id="go" disabled>Find the highlights</button>
       <div class="err" id="err"></div>
     </section>
 
     <section class="card">
-      <h2>3 · Result</h2>
+      <h2>4 · Result</h2>
       <div class="status"><span id="msg">waiting for a file</span><span id="pct-txt">0%</span></div>
       <div class="bar"><i id="fill"></i></div>
       <canvas id="curve" width="600" height="64"></canvas>
@@ -154,12 +168,13 @@
 
 <footer>
   Self-hosted. Nothing leaves this machine. CLI equivalent:
-  <code>hypecut cut vod.mp4 -o reel.mp4 --target 120</code>
+  <code>hypecut cut vod.mp4 -o reel.mp4 --target 120 --vertical</code>
 </footer>
 
 <script>
 const $ = (id) => document.getElementById(id);
 let file = null, poll = null, chosenRefiners = new Set(["diversity", "pacing"]);
+let reframeMode = "off";
 
 const sliders = [
   ["target", "v-target", (v) => v + "s"],
@@ -188,6 +203,19 @@ fetch("/api/meta").then((r) => r.json()).then((m) => {
     box.appendChild(chip);
   });
 }).catch(() => {});
+
+document.querySelectorAll("#reframe .chip").forEach((chip) => {
+  chip.onclick = () => {
+    document.querySelectorAll("#reframe .chip").forEach((c) => c.classList.remove("on"));
+    chip.classList.add("on");
+    reframeMode = chip.dataset.mode;
+    $("track").style.opacity = reframeMode === "crop" ? "1" : "0.35";
+  };
+});
+$("track").style.opacity = "0.35";
+["track", "snap"].forEach((id) => {
+  $(id).onclick = () => $(id).classList.toggle("on");
+});
 
 const drop = $("drop");
 drop.onclick = () => $("picker").click();
@@ -222,6 +250,9 @@ $("go").onclick = async () => {
   fd.append("min_duration", $("minlen").value);
   fd.append("max_duration", $("maxlen").value);
   fd.append("refiners", [...chosenRefiners].join(","));
+  fd.append("reframe", reframeMode);
+  fd.append("reframe_track", $("track").classList.contains("on"));
+  fd.append("snap_to_shots", $("snap").classList.contains("on"));
 
   try {
     const res = await fetch("/api/jobs", { method: "POST", body: fd });
@@ -272,10 +303,17 @@ function renderClips(plan) {
     const why = Object.entries(s.reasons || {})
       .sort((a, b) => b[1] - a[1]).slice(0, 2)
       .map(([k, v]) => `${k} ${v.toFixed(2)}`).join(" · ") || "—";
+    const meta = s.meta || {};
+    const tags = [];
+    if (meta.snapped) tags.push("snapped to cut");
+    if (meta.reframe && meta.reframe.mode !== "off") {
+      tags.push(meta.reframe.mode + (meta.reframe.keyframes ? " · pan" : ""));
+    }
+    const tagged = tags.length ? ` · ${tags.join(" · ")}` : "";
     return `<div class="clip">
       <span class="idx">${String(i + 1).padStart(2, "0")}</span>
       <span>${hhmmss(s.start)} → ${hhmmss(s.end)}
-        <span class="why">(${s.duration.toFixed(1)}s · ${why})</span></span>
+        <span class="why">(${s.duration.toFixed(1)}s · ${why}${tagged})</span></span>
       <span class="sc">${s.score.toFixed(3)}</span>
     </div>`;
   }).join("");

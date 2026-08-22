@@ -11,11 +11,11 @@ worth watching, plus a machine-readable cut list explaining every choice.
 
 from __future__ import annotations
 
-from .config import Config, RenderConfig, SegmentConfig, SignalConfig, load_config
+from .config import Config, ReframeConfig, RenderConfig, SegmentConfig, SignalConfig, load_config
 from .pipeline import PipelineResult, analyze, render_plan, run
 from .types import Candidate, HighlightPlan, SignalTrack, VideoInfo
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "__version__",
@@ -23,6 +23,7 @@ __all__ = [
     "SignalConfig",
     "SegmentConfig",
     "RenderConfig",
+    "ReframeConfig",
     "load_config",
     "analyze",
     "render_plan",

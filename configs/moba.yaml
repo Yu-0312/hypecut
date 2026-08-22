@@ -29,6 +29,7 @@ segments:
   percentile: 93.0
   max_clips: 12
   target_duration: 180.0
+  snap_window: 4.0        # camera jumps to the fight; that jump is the cut
 
 refiners: [diversity, pacing]
 refiner_params:
