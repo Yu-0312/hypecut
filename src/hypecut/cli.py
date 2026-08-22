@@ -35,7 +35,7 @@ VARIANT_PRESETS: dict[str, dict[str, object]] = {
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="hypecut", description="Automatic highlight reels for gameplay and esports VODs."
+        prog="hypecut", description="Automatic highlight reels for gameplay, esports and sports."
     )
     parser.add_argument("--version", action="version", version=f"hypecut {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)

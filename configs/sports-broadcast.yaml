@@ -1,0 +1,65 @@
+# Televised team sport — football/soccer, basketball, hockey, rugby.
+#
+# Three things make broadcast sport different from gameplay, and every number
+# below follows from one of them.
+#
+# 1. The moment is silent and the reaction is not. A goal makes no noise; the
+#    roar arrives a beat later and holds. Hence `reaction_lag`, a long
+#    `pre_roll`, and `crowd_roar` carrying more weight than raw loudness.
+# 2. The scoreboard is ground truth, not a proxy. `roi_change` watches it —
+#    but you MUST set the box to match your broadcaster's score bug, because
+#    there is no standard position. Run `hypecut analyze` and look at which
+#    clips list roi_change in their reasons.
+# 3. The director already cut the footage for you. Shot boundaries are dense
+#    and meaningful, so snapping does most of the edge work here.
+profile: sports-broadcast
+
+signals:
+  enabled: [crowd_roar, whistle, roi_change, audio_rms, speech_band, scene_change, motion]
+  weights:
+    crowd_roar: 1.8 # the single most reliable cue in stadium sport
+    whistle: 0.7 # marks phase boundaries; a goal is often whistle-then-roar
+    roi_change: 1.5 # a score change is not evidence of a moment, it *is* one
+    audio_rms: 0.5 # kept low: the PA and a shouting commentator both trip it
+    speech_band: 0.8 # commentary pitch rises with the play
+    scene_change: 0.4 # the director cuts constantly; this is mostly noise here
+    motion: 0.5
+  params:
+    crowd_roar:
+      sustain_seconds: 2.5 # a roar that dies in a second was a near miss
+      baseline_seconds: 45.0
+    roi_change:
+      # !! Set this to your broadcaster's score bug. Top-left is common in
+      # European football; US broadcasts often use a bottom bar instead.
+      box: [0.0, 0.0, 0.22, 0.14]
+    whistle:
+      low_hz: 2000
+      high_hz: 5000
+  smooth_seconds: 2.5 # the curve should follow the crowd, not individual hits
+
+segments:
+  min_duration: 10.0
+  max_duration: 30.0
+  pre_roll: 6.0 # the build-up is the story; the goal is the punctuation
+  post_roll: 6.0 # ...and the celebration is the payoff
+  reaction_lag: 2.5 # the roar peaks about this long after the ball crosses
+  merge_gap: 4.0
+  percentile: 95.0
+  max_clips: 12
+  target_duration: 240.0
+  snap_window: 3.0
+  snap_to_dissolves: true # replay wipes and stings are gradual transitions
+  trim_to_silence: false # a stadium is never quiet; there are no pauses to find
+
+render:
+  crf: 20
+  fade: 0.3
+
+refiners: [diversity, pacing]
+refiner_params:
+  pacing:
+    ideal: 18.0
+    tolerance: 8.0
+  diversity:
+    min_gap: 180.0 # spread across the match, not three clips from one half
+    strength: 0.45

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
+import numpy as np
 import pytest
 
 from hypecut import analyze, load_config, run
@@ -95,8 +97,6 @@ def test_refiners_change_the_ordering_but_keep_the_contract(sample_vod):
 
 @requires_ffmpeg
 def test_shipped_profiles_run_end_to_end(sample_vod):
-    from pathlib import Path
-
     root = Path(__file__).resolve().parents[1] / "configs"
     for path in sorted(root.glob("*.yaml")):
         cfg = load_config(path).merged({"segments": {"percentile": 80}, "refiners": []})
@@ -237,3 +237,60 @@ def test_run_reports_variant_outputs(sample_vod, tmp_path):
     assert set(result.variants) == {"vertical"}
     assert result.variants["vertical"].exists()
     assert result.sidecar is not None and result.sidecar.exists()
+
+
+@requires_ffmpeg
+def test_sports_profile_keeps_the_play_not_just_the_reaction(sports_vod):
+    """The gameplay defaults start after the goal; the sports profile must not."""
+    from tests.conftest import SPORT_DECOY, SPORT_GOAL, SPORT_ROAR
+
+    root = Path(__file__).resolve().parents[1] / "configs"
+    cfg = load_config(root / "sports-broadcast.yaml").merged(
+        {
+            "segments": {"percentile": 92, "min_duration": 6.0, "target_duration": 40.0},
+            "signals": {"params": {"roi_change": {"box": [0.0, 0.0, 0.22, 0.16]}}},
+        }
+    )
+    plan = analyze(sports_vod, cfg)
+    assert plan.segments
+
+    best = max(plan.segments, key=lambda s: s.score)
+    assert best.start < SPORT_GOAL, "the clip has to contain the play, not only the roar"
+    assert best.end > SPORT_ROAR[0], "and the reaction that follows it"
+    assert best.meta.get("reaction_time", 0) > best.meta["peak_time"], "lag is recorded"
+    assert not (best.start <= SPORT_DECOY <= best.end), "the brief shout is not a highlight"
+
+
+@requires_ffmpeg
+def test_crowd_roar_beats_raw_loudness_on_stadium_audio(sports_vod):
+    """The decoy shout is louder than the roar; only one of them is a moment."""
+    from hypecut.pipeline import _build_context
+    from hypecut.signals import build_signals
+    from tests.conftest import SPORT_DECOY, SPORT_ROAR
+
+    cfg = Config().merged({"signals": {"enabled": ["crowd_roar", "audio_rms"]}})
+    ctx = _build_context(
+        probe_info := __import__("hypecut.ffmpeg", fromlist=["probe"]).probe(sports_vod), cfg
+    )
+    assert probe_info.has_audio
+
+    tracks = {s.name: s.track(ctx).values for s in build_signals(cfg.signals.enabled)}
+    roar_peak = float(np.argmax(tracks["crowd_roar"])) / ctx.grid_fps
+    loud_peak = float(np.argmax(tracks["audio_rms"])) / ctx.grid_fps
+
+    assert SPORT_ROAR[0] <= roar_peak <= SPORT_ROAR[1]
+    assert not (SPORT_ROAR[0] <= loud_peak <= SPORT_ROAR[1]), (
+        "raw loudness is expected to pick something else — that is the point"
+    )
+    assert abs(loud_peak - SPORT_DECOY) < 3.0 or loud_peak < SPORT_ROAR[0]
+
+
+@requires_ffmpeg
+def test_shipped_sports_profiles_run_end_to_end(sports_vod):
+    root = Path(__file__).resolve().parents[1] / "configs"
+    for name in ("sports-broadcast.yaml", "sports-field.yaml"):
+        cfg = load_config(root / name).merged(
+            {"segments": {"percentile": 88, "min_duration": 5.0}, "refiners": []}
+        )
+        plan = analyze(sports_vod, cfg)
+        assert plan.segments, f"{name} found nothing"

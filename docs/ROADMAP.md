@@ -34,7 +34,14 @@ interesting it is to build. Items marked **help wanted** are good entry points.
 - [x] **Batch mode.** `hypecut batch FOLDER` cuts every video in a directory
       and carries on past individual failures.
 
-## v0.5 — cut points, continued
+## Shipped in v0.5
+
+- [x] **Sport.** Three new signals (`crowd_roar`, `whistle`, `roi_change`),
+      `segments.reaction_lag` for evidence that arrives after the event, and
+      `sports-broadcast` / `sports-field` profiles.
+- [x] **A written method for adapting to a new domain**, in EXTENDING.md.
+
+## v0.6 — cut points, continued
 
 - [ ] **Auto-locate the facecam.** `react_to_facecam` needs the box to be
       right, which is the one thing a user has to supply by hand. A one-off
@@ -46,7 +53,7 @@ interesting it is to build. Items marked **help wanted** are good entry points.
       slow speaker with no gaps still gets cut mid-word. ASR word timings
       (behind the existing `[asr]` extra) would fix it. **help wanted**
 
-## v0.6 — reach
+## v0.7 — reach
 
 - [ ] **Twitch/YouTube VOD URLs as input**, via yt-dlp as an optional extra.
 - [ ] **Chat-log signal.** Twitch chat message rate is close to a free
@@ -56,7 +63,7 @@ interesting it is to build. Items marked **help wanted** are good entry points.
 - [ ] **Parallel batch workers.** One file at a time is right on a laptop and
       wasteful on a workstation.
 
-## v0.7 — deployments with more than one user
+## v0.8 — deployments with more than one user
 
 - [ ] Pluggable queue backend (RQ or arq) behind the existing `JobStore`
       interface; the in-process worker stays the default.
@@ -69,8 +76,14 @@ interesting it is to build. Items marked **help wanted** are good entry points.
 More games, better tuned. This does not need Python and does not need a
 release. See [EXTENDING.md](EXTENDING.md#contributing-a-game-profile).
 
-Wanted: Rocket League, Apex Legends, Overwatch 2, Fortnite, Street Fighter 6,
-Minecraft, racing sims, speedruns, chess.
+Wanted, gaming: Rocket League, Apex Legends, Overwatch 2, Fortnite, Street
+Fighter 6, Minecraft, racing sims, speedruns, chess.
+
+Wanted, sport: tennis and volleyball (rally-based, so the "moment" is a whole
+point rather than an instant), motorsport (engine noise swamps the crowd
+band), combat sports (the roar and the strike are nearly simultaneous, so
+`reaction_lag` should be near zero), and cricket or baseball, where the
+scoreboard changes far more often than something interesting happens.
 
 ## Open design questions
 
@@ -90,6 +103,12 @@ calibration data we don't have.
 CLIP at judging candidates, but it breaks the "works fully offline, sends
 nothing anywhere" guarantee. Current thinking: acceptable as an explicitly
 opt-in refiner with a loud disclosure, never as a default. Not yet built.
+
+**How should rally sports be modelled?** Football has instants — a goal is a
+frame. Tennis has rallies: the interesting unit is twenty seconds long and its
+"peak" is arbitrary. Everything here assumes a moment with rolls around it,
+and a rally probably wants the region itself kept whole instead. Nobody has
+designed that yet.
 
 **Should trimming be allowed to override a snap?** Right now a shot boundary
 always wins, on the grounds that a cut is evidence and a pause is a guess. But

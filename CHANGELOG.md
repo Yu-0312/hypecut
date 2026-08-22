@@ -5,6 +5,34 @@ All notable changes are documented here. This project follows
 
 ## [Unreleased]
 
+## [0.5.0] — sport
+
+HypeCut is no longer only for gameplay. Sport breaks three assumptions the
+gameplay signals were built on, and this release addresses each one.
+
+### Added
+- **`crowd_roar`** — sustained stadium noise, found with a rolling *minimum*
+  so a plateau survives and a spike does not. A goal's roar wins over a louder
+  but briefer shout, which raw loudness gets backwards.
+- **`whistle`** — referee whistles, detected as narrowband tonal bursts
+  (concentration × band share, so neither loudness nor frequency alone
+  qualifies).
+- **`roi_change`** — change *isolated* to a small box, by subtracting the
+  whole-frame difference. A scoreboard digit flipping registers; a camera cut,
+  which moves the box and everything else equally, cancels to zero.
+- **`segments.reaction_lag`** — how long after a moment its detectable
+  reaction arrives. Shifts the in-point earlier only (the celebration is worth
+  keeping) and records both `peak_time` (the moment) and `reaction_time` (the
+  evidence) so every downstream guard protects the play.
+- **`sports-broadcast.yaml`** and **`sports-field.yaml`** profiles, the second
+  for a phone on the sideline with no scoreboard, no director and no cuts.
+- A written method for adapting HypeCut to any new domain, in
+  `docs/EXTENDING.md`.
+
+### Changed
+- Positioning broadened from "gameplay and esports" to "gameplay, esports and
+  sports" across the README, package metadata and CLI help.
+
 ## [0.4.0] — dissolves, variants, batch
 
 ### Added

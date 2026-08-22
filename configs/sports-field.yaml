@@ -1,0 +1,58 @@
+# Amateur sport shot from the sideline — a phone or a fixed camera at a
+# youth match, a club game, a training session.
+#
+# Almost everything the broadcast profile relies on is missing: no score bug,
+# no director cutting between angles, no commentary. One locked-off shot for
+# ninety minutes. What is left is a small crowd that reacts anyway, and the
+# fact that the camera operator swings toward whatever matters.
+#
+# So: no scoreboard signal, no shot snapping (there are no shots to snap to),
+# and pauses in the ambient noise doing the edge work instead.
+profile: sports-field
+
+signals:
+  enabled: [crowd_roar, audio_rms, audio_transient, motion, speech_band]
+  weights:
+    crowd_roar: 1.6 # a handful of parents still roar at the right moments
+    audio_rms: 0.9
+    audio_transient: 0.8 # the strike of the ball, a shout from the touchline
+    motion: 1.0 # the operator panning hard *is* a signal on a fixed camera
+    speech_band: 0.6
+  params:
+    crowd_roar:
+      # A small crowd needs a shorter sustain and a shorter memory than a
+      # stadium: twenty people cheering for two seconds is the local maximum.
+      sustain_seconds: 1.5
+      baseline_seconds: 20.0
+      low_hz: 120
+      high_hz: 2000 # a thin crowd sits higher in the spectrum than a full one
+  smooth_seconds: 2.0
+
+segments:
+  min_duration: 8.0
+  max_duration: 24.0
+  pre_roll: 6.0
+  post_roll: 5.0
+  reaction_lag: 2.0
+  merge_gap: 4.0
+  percentile: 93.0
+  max_clips: 15
+  target_duration: 180.0
+  snap_to_shots: false # one continuous shot; there is nothing to snap to
+  trim_to_silence: true # so the pauses between cheers carry the edges
+  min_silence: 0.4
+  silence_drop_db: 10.0 # ambient outdoor noise never drops far — ask for less
+  silence_window: 3.0
+
+render:
+  crf: 21
+  fade: 0.25
+  normalize_audio: true # phone microphones need it more than a broadcast feed
+
+refiners: [diversity, pacing]
+refiner_params:
+  pacing:
+    ideal: 14.0
+    tolerance: 6.0
+  diversity:
+    min_gap: 120.0

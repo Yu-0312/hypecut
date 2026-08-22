@@ -135,6 +135,50 @@ hud_number_churn = "hypecut_hud:HudNumberChurn"
 face_reaction = "hypecut_face:FaceReaction"
 ```
 
+## Adapting to a new kind of footage
+
+Adding a game is tuning. Adding a *domain* — sport, lectures, wildlife,
+dashcam — sometimes needs new detectors, and the sports work is the worked
+example. Three questions decide what you need.
+
+**1. When does the evidence arrive relative to the event?**
+
+In gameplay the kill and its sound are simultaneous, so the detected peak is
+the moment. In sport the goal is silent and the roar arrives a second or two
+later, so a clip anchored on the peak starts *after* the thing worth watching.
+That is what `segments.reaction_lag` is for. It shifts the in-point earlier
+and records both times on the clip (`peak_time` is the moment,
+`reaction_time` is the evidence), so every downstream guard protects the play
+rather than the celebration.
+
+Note it does *not* shift the out-point. The reaction is usually worth keeping;
+only the start was in the wrong place.
+
+**2. Is the evidence an edge or a plateau?**
+
+`audio_transient` rewards change, which is right for a gunshot and wrong for a
+crowd: it fires as the roar begins and loses interest exactly when the stadium
+is loudest. `crowd_roar` takes a rolling *minimum* instead, so only sustained
+noise survives. If your domain's evidence is "loud for a while" rather than
+"suddenly loud", copy that shape rather than reaching for a model.
+
+A caveat worth internalising: frequency will not separate a crowd from a
+commentator — a voice fundamental sits at 85-255 Hz, inside any sensible crowd
+band. Duration does, because a person breathes and a stadium does not. When a
+band-based idea does not work, ask what *else* is different.
+
+**3. Does some region of the frame already know the answer?**
+
+Kill feeds, scoreboards, lap counters, lower-thirds. `roi_activity` asks "is
+this box busy", which a camera cut answers as loudly as a goal does.
+`roi_change` asks the better question — is this box changing *more than the
+rest of the frame* — by subtracting the global difference. A digit flip
+survives; a cut cancels to zero. Prefer it whenever the region is small and
+the rest of the frame moves on its own.
+
+Once you know the answers, most of the work is a profile. Only reach for a new
+signal when none of the existing ones measures the thing you care about.
+
 ## Contributing a game profile
 
 The highest-value contribution, and it needs no Python.
@@ -151,6 +195,11 @@ The highest-value contribution, and it needs no Python.
 5. Open a PR adding `configs/<game>.yaml` with a comment block explaining *why*
    each weight is what it is. The reasoning is the valuable part — it's what
    lets the next person adapt it.
+
+The shipped `sports-broadcast.yaml` is the fullest worked example: every
+number in it has a one-line justification, including the ones that turn
+features *off* (`trim_to_silence: false`, because a stadium is never quiet
+and there are no pauses to find).
 
 ## Testing your extension
 

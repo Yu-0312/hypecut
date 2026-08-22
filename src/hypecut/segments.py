@@ -54,31 +54,46 @@ def build_candidates(
         return []
 
     tracks = tracks or []
+    lag = max(0.0, cfg.reaction_lag)
     out: list[Candidate] = []
     for i0, i1 in regions:
         peak_idx = int(i0 + np.argmax(curve[i0:i1]))
-        start = float(times[i0]) - cfg.pre_roll
+
+        # `reaction_lag` shifts the in-point only, and it is asymmetric on
+        # purpose. In sports the detectable event is the crowd's reaction,
+        # which arrives after the play — so the clip has to start earlier to
+        # contain the play at all. The out-point is left alone: the roar and
+        # the celebration *are* worth keeping, and pulling the end back by the
+        # same amount would cut them off.
+        start = float(times[i0]) - cfg.pre_roll - lag
         end = float(times[min(i1, times.size - 1)]) + cfg.post_roll
         start = max(0.0, start)
         end = min(duration, max(end, start + 0.1))
 
-        # Grow short clips symmetrically around the peak instead of from the
-        # left edge, so the interesting moment stays centred.
+        # The moment itself, as opposed to the reaction that revealed it. Every
+        # downstream guard (snapping, trimming) protects this, so it has to be
+        # the play rather than the roar.
+        moment = max(0.0, float(times[peak_idx]) - lag)
+
+        # Grow short clips symmetrically around the moment instead of from the
+        # left edge, so the interesting part stays centred.
         if end - start < cfg.min_duration:
-            centre = float(times[peak_idx])
             half = cfg.min_duration / 2.0
-            start = max(0.0, centre - half)
+            start = max(0.0, moment - half)
             end = min(duration, start + cfg.min_duration)
             start = max(0.0, end - cfg.min_duration)
 
         score = float(curve[i0:i1].mean() * 0.5 + curve[peak_idx] * 0.5)
+        meta: dict[str, object] = {"peak_time": round(moment, 3)}
+        if lag:
+            meta["reaction_time"] = round(float(times[peak_idx]), 3)
         out.append(
             Candidate(
                 start=start,
                 end=end,
                 score=score,
                 reasons=explain(tracks, i0, i1) if tracks else {},
-                meta={"peak_time": round(float(times[peak_idx]), 3)},
+                meta=meta,
             )
         )
     return out

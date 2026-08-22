@@ -141,3 +141,59 @@ def talk_vod(tmp_path_factory: pytest.TempPathFactory) -> Path:
         out=str(out),
     )
     return out
+
+
+# Landmarks in `sports_vod`, in seconds.
+SPORT_GOAL = 26.0  # the moment itself — silent
+SPORT_ROAR = (28.0, 36.0)  # the crowd reaction that follows it
+SPORT_WHISTLE = 8.0
+SPORT_DECOY = 17.0  # a loud but brief shout that must not win
+
+
+@pytest.fixture(scope="session")
+def sports_vod(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Broadcast-style sport: crowd bed, whistle, a silent goal, then a roar."""
+    if not HAS_FFMPEG:
+        pytest.skip("ffmpeg not installed")
+    np = pytest.importorskip("numpy")
+
+    d = tmp_path_factory.mktemp("sport")
+    sr, seconds = 48_000, 50.0
+    n = int(sr * seconds)
+    t = np.arange(n) / sr
+    rng = np.random.default_rng(23)
+
+    bed = np.convolve(rng.normal(0, 0.03, n), np.ones(60) / 60, mode="same")
+    blast = (t >= SPORT_WHISTLE) & (t < SPORT_WHISTLE + 0.7)
+    bed[blast] += 0.35 * np.sin(2 * np.pi * 3500 * t[blast])
+    decoy = (t >= SPORT_DECOY) & (t < SPORT_DECOY + 0.4)
+    bed[decoy] += rng.normal(0, 0.45, int(decoy.sum()))
+
+    roar = np.zeros(n)
+    lo, hi = SPORT_ROAR
+    window = (t >= lo) & (t < hi)
+    envelope = np.clip((t[window] - lo) / 1.5, 0, 1) * np.clip((hi - t[window]) / 2.0, 0, 1)
+    roar[window] = rng.normal(0, 0.30, int(window.sum())) * envelope
+    roar = np.convolve(roar, np.ones(40) / 40, mode="same")
+
+    raw = d / "audio.f32"
+    raw.write_bytes((bed + roar).astype(np.float32).tobytes())
+
+    out = d / "sport.mp4"
+    _run(
+        "ffmpeg -v error -y -f lavfi -i color=c=#1d5c2a:s=480x270:r=15:d=50 "
+        "-f lavfi -i color=c=white:s=14x14:r=15:d=50 "
+        "-f lavfi -i color=c=#f0f0f0:s=10x18:r=15:d=50 "
+        "-f f32le -ar 48000 -ac 1 -i {raw} "
+        "-filter_complex {graph} -map [v] -map 3:a -shortest "
+        "-c:v libx264 -preset ultrafast -crf 30 -pix_fmt yuv420p -c:a aac -b:a 96k {out}",
+        raw=str(raw),
+        out=str(out),
+        # A ball wandering the pitch, plus a score digit that jumps once, a
+        # second after the goal — a scoreboard update, isolated to its corner.
+        graph=(
+            "[0:v][1:v]overlay=x='240+210*sin(t*0.7)':y='135+75*cos(t*0.9)'[a];"
+            f"[a][2:v]overlay=x='30+if(gte(t,{SPORT_GOAL + 1.0}),14,0)':y=12[v]"
+        ),
+    )
+    return out

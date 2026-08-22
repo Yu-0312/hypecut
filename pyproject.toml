@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hypecut"
-version = "0.4.0"
-description = "Automatic highlight reels for gameplay and esports VODs — upload a video, get the good parts."
+version = "0.5.0"
+description = "Automatic highlight reels for gameplay, esports and sports — upload a video, get the good parts."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 authors = [{ name = "HypeCut contributors" }]
-keywords = ["video", "highlights", "esports", "gaming", "ffmpeg", "editing", "vod"]
+keywords = ["video", "highlights", "esports", "gaming", "sports", "ffmpeg", "editing", "vod"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",

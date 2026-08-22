@@ -76,6 +76,16 @@ normalise, does not threshold, and does not know its own weight. Built-ins:
 | `motion` | frames | fraction of the frame moving — action density |
 | `flash` | frames | global luminance jumps — explosions, ults, flashbangs |
 | `roi_activity` | frames | change inside a normalised box — kill feed, scoreboard |
+| `crowd_roar` | audio | sustained stadium noise, measured as a plateau not a spike |
+| `whistle` | audio | narrowband tonal burst — referee whistles |
+| `roi_change` | frames | change *isolated* to a box — scoreboards, clocks, counters |
+
+The last three exist because sport breaks assumptions the first seven were
+built on; `docs/EXTENDING.md` covers the reasoning. The pair worth contrasting
+is `roi_activity` and `roi_change`: the first measures how busy a region is,
+the second measures how much busier it is *than the rest of the frame*. A
+camera cut maxes out the first and cancels to zero in the second, which is why
+a scoreboard needs the second one.
 
 `roi_activity` is the interesting one. It encodes game-specific knowledge — *the
 kill feed lives in the top-right* — without OCR, without a model, and without a
@@ -108,6 +118,11 @@ the selector used, not a post-hoc rationalisation.
 Regions above the *n*th percentile (default 92) become candidates. Three
 non-obvious rules:
 
+* **`reaction_lag` shifts only the in-point.** When the evidence for a moment
+  arrives after the moment — a crowd roar following a goal — the clip has to
+  start earlier to contain the play at all, but the reaction is worth keeping,
+  so the out-point stays. The moment (`peak_time`) and the evidence
+  (`reaction_time`) are both recorded, and every later guard uses the former.
 * **Pre-roll and post-roll are asymmetric** (3 s / 2 s by default). The wind-up
   to a moment is longer than the reaction to it, and a clip that starts on the
   kill reads as a jump cut.

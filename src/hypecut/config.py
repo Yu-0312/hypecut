@@ -65,6 +65,10 @@ class SegmentConfig:
     pre_roll: float = 3.0
     post_roll: float = 2.0
     merge_gap: float = 2.0
+    # How long *after* the moment its detectable reaction arrives. Zero for
+    # gameplay, where the kill and its sound are simultaneous; a couple of
+    # seconds for sports, where the goal is silent and the roar is not.
+    reaction_lag: float = 0.0
     percentile: float = 92.0
     max_clips: int = 20
     target_duration: float | None = 120.0

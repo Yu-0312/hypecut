@@ -2,9 +2,9 @@
 
 **Drop in a VOD, get back the good parts.**
 
-HypeCut watches a long gameplay recording, finds the moments that matter, and
-stitches them into a single highlight reel — with a machine-readable cut list
-explaining why every clip was chosen.
+HypeCut watches a long recording — a gameplay VOD, a football match, a lecture
+— finds the moments that matter, and stitches them into a single highlight
+reel, with a machine-readable cut list explaining why every clip was chosen.
 
 ```bash
 hypecut cut vod.mp4 -o reel.mp4 --target 120
@@ -214,8 +214,35 @@ A profile is a small YAML file. Shipped ones:
 | `moba.yaml` | LoL, Dota 2 | long pre-roll for the engage, caster voice band |
 | `just-chatting.yaml` | talk streams, podcasts | visual signals off, long clips, keyword boost |
 | `shorts.yaml` | Shorts / Reels / TikTok | 9:16 tracking crop, picky, short punchy clips |
+| `sports-broadcast.yaml` | televised football, basketball, hockey | crowd roar, whistle, scoreboard, reaction lag |
+| `sports-field.yaml` | phone on the sideline, club matches | crowd roar + motion only, no cuts to snap to |
 
 Copy one, change numbers, pass `--profile my.yaml`. No Python required.
+
+### Sport is not gameplay
+
+Three assumptions break when you point this at a match, and the sports
+profiles exist because of them.
+
+**The moment is silent; the reaction is not.** A goal makes no sound. The roar
+arrives a second or two later and then *holds*. Detectors built for gameplay —
+where the kill and its sound are simultaneous — fire on the roar and produce a
+clip that starts *after* the goal. `segments.reaction_lag` shifts the in-point
+back by that offset, and only the in-point: the celebration is worth keeping.
+
+**A roar is a plateau, not a spike.** `crowd_roar` takes a rolling *minimum*,
+so a door slam or a clipped microphone cannot survive it while eight seconds
+of crowd can. On the test footage, plain loudness picks a brief shout over the
+goal; `crowd_roar` does not.
+
+**The scoreboard is ground truth, not a proxy.** `roi_change` measures a small
+box *against the rest of the frame*, so a digit flipping registers and a camera
+cut — which moves the box and everything else equally — cancels to zero.
+
+The same three questions are how you'd adapt HypeCut to anything else: when
+does the evidence arrive relative to the event, is the evidence an edge or a
+plateau, and is there a region of the frame that already knows the answer.
+[docs/EXTENDING.md](docs/EXTENDING.md) walks through it.
 
 ## Writing a detector
 

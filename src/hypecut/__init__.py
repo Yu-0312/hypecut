@@ -1,4 +1,4 @@
-"""HypeCut — automatic highlight reels for gameplay and esports VODs.
+"""HypeCut — automatic highlight reels for gameplay, esports and sports.
 
 Upload a long video, get back a short one containing only the moments
 worth watching, plus a machine-readable cut list explaining every choice.
@@ -15,7 +15,7 @@ from .config import Config, ReframeConfig, RenderConfig, SegmentConfig, SignalCo
 from .pipeline import PipelineResult, analyze, render_plan, run
 from .types import Candidate, HighlightPlan, SignalTrack, VideoInfo
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 __all__ = [
     "__version__",
