@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hypecut"
-version = "0.5.0"
+version = "0.6.0"
 description = "Automatic highlight reels for gameplay, esports and sports — upload a video, get the good parts."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -43,6 +43,7 @@ asr = [
 ]
 dev = [
   "pytest>=8.0",
+  "Pillow>=10.0",
   "pytest-cov>=5.0",
   "ruff>=0.5",
   "mypy>=1.10",
@@ -63,7 +64,7 @@ hypecut = "hypecut.cli:main"
 packages = ["src/hypecut"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/hypecut", "configs", "tests", "docs", "README.md", "LICENSE"]
+include = ["src/hypecut", "configs", "tests", "docs", "skill", "README.md", "AGENTS.md", "LICENSE"]
 
 [tool.ruff]
 line-length = 100

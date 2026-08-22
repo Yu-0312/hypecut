@@ -102,6 +102,16 @@ hypecut cut vod.mp4 --no-snap --no-trim
 # See the cut list without spending an encode
 hypecut analyze vod.mp4 --json plan.json
 
+# Edit plan.json by hand, then render exactly that
+hypecut render plan.json -o reel.mp4
+
+# One labelled image showing what the footage is (or what got picked)
+hypecut contact-sheet vod.mp4 -o sheet.png
+hypecut contact-sheet vod.mp4 --plan plan.json -o picked.png
+
+# What profiles exist, and what each is for
+hypecut profiles
+
 # What detectors are available?
 hypecut signals
 ```
@@ -171,7 +181,11 @@ transition, a killcam, a scene switch. A clip that starts three frames into a
 continuous shot looks *sliced*; the same clip started on the cut looks
 *edited*. Boundaries are found on the 10 Hz frames already in memory, then
 each accepted edge is re-checked at the source frame rate. Nothing may cross
-the clip's peak, and a snap that would break the length budget is refused.
+into the clip's *event* — the above-threshold span it was built around, not
+merely its loudest frame — and a snap that would break the length budget is
+refused. That distinction is not pedantry: in a twenty-second rally the
+loudest frame can be the third shot, and a guard placed there would let the
+first quarter be trimmed away.
 
 Crossfades and fades count too, and they get treated as the intervals they
 are: an in-point lands on the *far* side of a dissolve so the clip opens on
@@ -184,6 +198,14 @@ three words into a sentence. Any edge that found no boundary is then moved into
 the nearest pause instead — measured against that clip's own speech level, so a
 whispered aside and a shouted play are both handled. A real cut always wins:
 trimming never touches an edge snapping already decided.
+
+**The reel sounds like one piece.** `dynaudnorm` evens out dynamics inside a
+clip and says nothing about how two clips compare, which is exactly the
+artefact people notice when a reel jumps in volume halfway through. So there
+is a measurement pass: every clip's integrated loudness (EBU R128), then a
+static gain toward a target. Matching is 0.9 rather than 1.0 on purpose —
+flattening every clip to the same number makes a quiet moment and a stadium
+roar equally loud, which is technically correct and editorially wrong.
 
 **Vertical is a crop, not a letterbox.** `--vertical` takes a 9:16 slice
 centred on where the motion actually is, computed per clip from the same
@@ -202,6 +224,27 @@ vertical crop is centred on its own action track rather than being a
 letterboxed copy. Only the encode is repeated.
 
 Full detail in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Letting an AI drive it
+
+Everything above is also reachable by an agent, and the pieces that make that
+work are deliberate rather than incidental: `analyze` and `render` are
+separate steps, the cut list is JSON that carries the reasoning *and* the
+config, and `contact-sheet` hands a model one labelled image so it can
+actually see the footage instead of guessing from a filename.
+
+Two ways to use it:
+
+- **Give an AI the repo.** [AGENTS.md](AGENTS.md) is the contract — the loop,
+  the commands, the judgement calls. No special agent mode exists; the same
+  commands do the same things for a person.
+- **Install the skill.** `skill/hypecut/` (packaged as `hypecut.skill`) is a
+  thin conversational wrapper: drop a video into a chat, get a reel back. It
+  deliberately duplicates nothing — profile descriptions come from
+  `hypecut profiles`, detector descriptions from `hypecut signals --json`, so
+  the skill cannot drift out of sync with the tool.
+
+Both need a shell, a filesystem and ffmpeg.
 
 ## Profiles
 

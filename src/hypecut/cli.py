@@ -143,7 +143,29 @@ def build_parser() -> argparse.ArgumentParser:
     add_common(ana)
     ana.add_argument("--json", dest="json_out", help="write the plan to this path")
 
-    sub.add_parser("signals", help="list available signals and refiners")
+    sig = sub.add_parser("signals", help="list available signals and refiners")
+    sig.add_argument("--json", action="store_true", help="machine-readable catalogue")
+
+    prof = sub.add_parser("profiles", help="list the shipped profiles and what each is for")
+    prof.add_argument("--json", action="store_true", help="machine-readable listing")
+    prof.add_argument("--dir", default="configs", help="where to look for profiles")
+
+    sheet = sub.add_parser(
+        "contact-sheet", help="one labelled grid of frames — what an agent looks at"
+    )
+    sheet.add_argument("source", help="input video file")
+    sheet.add_argument("-o", "--output", default="contact-sheet.png")
+    sheet.add_argument("--plan", help="cut list; without one, sample the whole video evenly")
+    sheet.add_argument("--count", type=int, default=12, help="tiles when sampling evenly")
+    sheet.add_argument("--columns", type=int, default=4)
+    sheet.add_argument("--json", action="store_true", help="print the tile index as JSON")
+
+    rp = sub.add_parser("render", help="render an edited cut list")
+    rp.add_argument("plan", help="a .hypecut.json cut list, edited or not")
+    rp.add_argument("-o", "--output", default=None, help="output video path")
+    rp.add_argument("--source", default=None, help="override the video the plan points at")
+    rp.add_argument("--also", action="append", default=None, choices=sorted(VARIANT_PRESETS))
+    rp.add_argument("-q", "--quiet", action="store_true")
 
     serve = sub.add_parser("serve", help="run the web UI")
     serve.add_argument("--host", default="127.0.0.1")
@@ -286,6 +308,83 @@ def _run_batch(args: argparse.Namespace, cfg: Config, report) -> int:
     return 1 if failed else 0
 
 
+def _describe_profiles(root: Path) -> list[dict[str, str]]:
+    """Name + one-line purpose for every profile in a directory.
+
+    The summary is the profile's own first comment line. Keeping it there
+    rather than in a table somewhere means it cannot drift from the file it
+    describes, and a contributor adding a profile writes the description
+    without being told to.
+    """
+    out: list[dict[str, str]] = []
+    for path in sorted(root.glob("*.yaml")):
+        summary = ""
+        for line in path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                summary = stripped.lstrip("# ").strip()
+                break
+            if stripped:
+                break
+        out.append({"name": path.stem, "path": str(path), "summary": summary})
+    return out
+
+
+def _run_contact_sheet(args: argparse.Namespace) -> int:
+    from .contact import contact_sheet
+    from .ffmpeg import probe
+
+    segments = None
+    if args.plan:
+        from .plan import load_plan
+
+        plan, _ = load_plan(args.plan, source=args.source if hasattr(args, "source") else None)
+        segments = plan.segments
+        info = plan.info
+    else:
+        info = probe(args.source)
+
+    dest, index = contact_sheet(
+        info, args.output, segments=segments, count=args.count, columns=args.columns
+    )
+    if args.json:
+        print(json.dumps({"sheet": str(dest), "tiles": index}, indent=2, ensure_ascii=False))
+    else:
+        print(f"Wrote {dest} ({len(index)} tiles)")
+        for entry in index:
+            print(f"  {entry['tile']:02d}  {_hhmmss(float(entry['time']))}")
+    return 0
+
+
+def _run_render(args: argparse.Namespace, report) -> int:
+    from .pipeline import render_plan, render_variants
+    from .plan import load_plan
+
+    plan, cfg = load_plan(args.plan, source=args.source)
+    if args.also:
+        cfg = cfg.merged(
+            {"variants": {name: VARIANT_PRESETS[name] for name in dict.fromkeys(args.also)}}
+        )
+
+    output = (
+        Path(args.output) if args.output else Path(args.plan).with_suffix("").with_suffix(".mp4")
+    )
+    if cfg.variants:
+        outputs = render_variants(plan, output, cfg, progress=report)
+        out = outputs["base"]
+    else:
+        outputs = {}
+        out, _ = render_plan(plan, output, cfg, progress=report, write_sidecar=False)
+
+    if not args.quiet:
+        print(f"\n{len(plan.segments)} clips, {plan.total_duration:.1f}s reel")
+        print(f"Reel:    {out}")
+        for name, path in outputs.items():
+            if name != "base":
+                print(f"  +{name:<9} {path}")
+    return 0
+
+
 def _parse_box(text: str) -> list[float]:
     """Parse ``x0,y0,x1,y1`` in normalised 0-1 coordinates."""
     try:
@@ -329,12 +428,33 @@ def main(argv: list[str] | None = None) -> int:
 
         lsp()
         lrp()
+        if args.json:
+            print(
+                json.dumps(
+                    {"signals": available_signals(), "refiners": available_refiners()},
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
+            return 0
         print("Signals (stage 1 — cheap, run over the whole video):")
         for name, desc in available_signals().items():
             print(f"  {name:<18} {desc}")
         print("\nRefiners (stage 2 — run only on candidates):")
         for name, desc in available_refiners().items():
             print(f"  {name:<18} {desc}")
+        return 0
+
+    if args.command == "profiles":
+        found = _describe_profiles(Path(args.dir))
+        if args.json:
+            print(json.dumps(found, indent=2, ensure_ascii=False))
+            return 0
+        if not found:
+            print(f"No profiles found in {args.dir}/", file=sys.stderr)
+            return 1
+        for item in found:
+            print(f"  {item['name']:<22} {item['summary']}")
         return 0
 
     if args.command == "serve":
@@ -353,6 +473,11 @@ def main(argv: list[str] | None = None) -> int:
     from .pipeline import analyze, render_plan, render_variants
 
     try:
+        if args.command == "contact-sheet":
+            return _run_contact_sheet(args)
+        if args.command == "render":
+            return _run_render(args, _progress(args.quiet))
+
         cfg = _config_from_args(args)
         report = _progress(args.quiet)
 

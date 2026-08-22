@@ -5,6 +5,35 @@ All notable changes are documented here. This project follows
 
 ## [Unreleased]
 
+## [0.6.0] — sound, spans, and agents
+
+### Added
+- **Cross-clip loudness matching.** A measurement pass reads each clip's
+  integrated loudness (EBU R128) through the same filter chain the encode
+  will use, then applies a static gain toward `render.loudness_target`.
+  `loudness_match` defaults to 0.9 rather than 1.0: full matching makes a
+  whispered aside and a stadium roar equally loud.
+- **`hypecut contact-sheet`** — one labelled grid of frames, either sampled
+  across the video or one per proposed clip. The caption sits at the bottom
+  so it cannot cover the scoreboard corner.
+- **`hypecut render plan.json`** — render an edited cut list. Times are
+  clamped to the source and validated; an edited plan is untrusted input.
+- **`hypecut profiles`** and **`hypecut signals --json`** — machine-readable
+  catalogues. Profile summaries come from each profile's own first comment,
+  so they cannot drift from the file.
+- **`AGENTS.md`** and a **skill package** (`skill/hypecut/`, `hypecut.skill`)
+  for driving HypeCut from an AI assistant. No separate agent code path —
+  the same commands serve people.
+- `hypecut.plan.load_plan()` / `plan_from_dict()` in the API.
+
+### Fixed
+- **Clip edges could be moved into the middle of a long event.** Snapping and
+  trimming guarded a single point (`peak_time`); the loudest frame of a
+  twenty-second rally can be its third shot, so the guard permitted the rest
+  to be trimmed away. Clips now carry `event_start` / `event_end` and the
+  guards protect the whole span. Degenerate spans fall back to the old
+  behaviour, so instant events are unchanged.
+
 ## [0.5.0] — sport
 
 HypeCut is no longer only for gameplay. Sport breaks three assumptions the

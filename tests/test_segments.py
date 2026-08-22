@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from hypecut.config import SegmentConfig
 from hypecut.fusion import fuse, robust_z, smooth
@@ -83,3 +84,53 @@ def test_select_always_returns_something_when_budget_is_tiny():
     cfg = SegmentConfig(target_duration=1.0)
     chosen = select([Candidate(0.0, 30.0, 0.9)], cfg)
     assert len(chosen) == 1  # a too-small budget must not yield an empty reel
+
+
+def test_candidates_record_the_event_span():
+    times = np.arange(600) / 10.0
+    curve = np.zeros(600)
+    curve[200:260] = 1.0  # a six-second exchange
+    cfg = SegmentConfig(percentile=99.0, min_duration=1.0, pre_roll=3.0, post_roll=2.0)
+
+    cand = build_candidates(curve, times, cfg, grid_fps=10.0, duration=60.0)[0]
+
+    assert cand.protected() == (pytest.approx(20.0, abs=0.2), pytest.approx(26.0, abs=0.2))
+    assert cand.start < cand.protected()[0], "the roll sits outside the event"
+    assert cand.end > cand.protected()[1]
+
+
+def test_protected_falls_back_to_the_peak():
+    assert Candidate(0.0, 10.0, 1.0, meta={"peak_time": 4.0}).protected() == (4.0, 4.0)
+    # No metadata at all: the midpoint is the only defensible answer.
+    assert Candidate(0.0, 10.0, 1.0).protected() == (5.0, 5.0)
+
+
+def test_merge_unions_the_event_spans():
+    cfg = SegmentConfig(merge_gap=2.0, max_duration=60.0)
+    merged = merge(
+        [
+            Candidate(0.0, 10.0, 0.5, meta={"event_start": 3.0, "event_end": 7.0}),
+            Candidate(11.0, 20.0, 0.9, meta={"event_start": 14.0, "event_end": 18.0}),
+        ],
+        cfg,
+    )
+    assert len(merged) == 1
+    assert merged[0].protected() == (3.0, 18.0)
+
+
+def test_merge_keeps_the_event_when_it_has_to_truncate():
+    """The clamp holds the exchange, not an arbitrary window round the peak."""
+    cfg = SegmentConfig(merge_gap=2.0, max_duration=12.0)
+    merged = merge(
+        [
+            Candidate(
+                0.0, 10.0, 0.5, meta={"peak_time": 1.0, "event_start": 6.0, "event_end": 9.0}
+            ),
+            Candidate(
+                11.0, 22.0, 0.9, meta={"peak_time": 20.0, "event_start": 14.0, "event_end": 17.0}
+            ),
+        ],
+        cfg,
+    )
+    assert merged[0].duration <= 12.0 + 1e-6
+    assert merged[0].start <= 6.0, "the first event must survive the clamp"

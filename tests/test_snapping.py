@@ -205,3 +205,53 @@ def test_a_hard_cut_beats_a_dissolve_edge_at_the_same_distance():
     boundaries = _merge_boundaries(np.array([10.0]), [10.0])
     found = _nearest(boundaries, target=10.0, window=1.0, lo=0.0, hi=20.0)
     assert found == (10.0, "cut")
+
+
+def test_snap_protects_a_whole_rally_not_just_its_loudest_frame():
+    """The guard is the event span, not the peak — that is the point of it.
+
+    A long exchange whose maximum lands early would, under a peak-only guard,
+    let the in-point be dragged to that maximum and delete the rest.
+    """
+    gray = _gray_with_cuts(40.0, [12.0, 30.0])
+    ctx = _ctx(gray, fps=30.0)
+    cfg = SegmentConfig(snap_fine=False, min_duration=4.0, max_duration=30.0)
+    rally = Candidate(
+        10.0,
+        32.0,
+        0.9,
+        # Loudest frame at 14 s, but the exchange itself runs 13 s -> 28 s.
+        meta={"peak_time": 14.0, "event_start": 13.0, "event_end": 28.0},
+    )
+
+    snap_segments(ctx, [rally], cfg)
+
+    assert rally.start <= 13.0, "must not trim into the rally"
+    assert rally.end >= 28.0, "must not end before the rally does"
+
+
+def test_snap_falls_back_to_the_peak_without_event_bounds():
+    """Hand-built clips carry no span; behaviour there is unchanged."""
+    gray = _gray_with_cuts(30.0, [10.0, 20.0])
+    ctx = _ctx(gray, fps=30.0)
+    cfg = SegmentConfig(snap_fine=False, min_duration=3.0, max_duration=25.0)
+    seg = Candidate(8.4, 21.6, 0.9, meta={"peak_time": 15.0})
+
+    snap_segments(ctx, [seg], cfg)
+
+    assert seg.start == pytest.approx(10.0, abs=0.15)
+    assert seg.end == pytest.approx(20.0, abs=0.15)
+
+
+def test_a_truncated_clip_can_still_snap_its_end():
+    """max_duration may cut mid-event; landing on a cut still beats a raw frame."""
+    gray = _gray_with_cuts(40.0, [12.0, 24.0])
+    ctx = _ctx(gray, fps=30.0)
+    cfg = SegmentConfig(snap_fine=False, min_duration=4.0, max_duration=30.0)
+    seg = Candidate(
+        11.0, 24.4, 0.9, meta={"peak_time": 15.0, "event_start": 13.0, "event_end": 35.0}
+    )
+
+    snap_segments(ctx, [seg], cfg)
+
+    assert seg.end == pytest.approx(24.0, abs=0.15)

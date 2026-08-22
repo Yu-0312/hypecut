@@ -9,7 +9,9 @@ highlight reel — a clip that starts 1.8 s late has already missed the shot.
 
 from __future__ import annotations
 
+import re
 import shutil
+import subprocess
 import tempfile
 from collections.abc import Callable, Iterable
 from pathlib import Path
@@ -19,7 +21,14 @@ from .ffmpeg import cmd, require_ffmpeg, run
 from .reframe import geometry_filters
 from .types import Candidate, VideoInfo
 
-__all__ = ["render_reel", "write_chapters_file", "write_edl"]
+__all__ = [
+    "render_reel",
+    "audio_filters",
+    "measure_loudness",
+    "plan_loudness_gains",
+    "write_chapters_file",
+    "write_edl",
+]
 
 Progress = Callable[[float, str], None]
 
@@ -48,12 +57,19 @@ def render_reel(
     parts: list[Path] = []
 
     try:
-        for idx, seg in enumerate(segments):
+        gains = plan_loudness_gains(
+            info, segments, cfg, progress=(lambda p, m: progress(p * 0.25, m)) if progress else None
+        )
+        for idx, (seg, gain) in enumerate(zip(segments, gains, strict=True)):
             part = tmp_root / f"part_{idx:04d}.mp4"
-            _encode_segment(info, seg, part, cfg, plan_key)
+            _encode_segment(info, seg, part, cfg, plan_key, gain)
+            if gain:
+                seg.meta["loudness_gain_db"] = round(gain, 2)
             parts.append(part)
             if progress:
-                progress((idx + 1) / (len(segments) + 1), f"clip {idx + 1}/{len(segments)}")
+                progress(
+                    0.25 + 0.75 * (idx + 1) / (len(segments) + 1), f"clip {idx + 1}/{len(segments)}"
+                )
 
         _concat(parts, output, cfg, info, segments)
         if progress:
@@ -64,8 +80,97 @@ def render_reel(
             shutil.rmtree(tmp_root, ignore_errors=True)
 
 
+def audio_filters(seg: Candidate, cfg: RenderConfig, gain_db: float = 0.0) -> list[str]:
+    """The audio chain for one clip, with an optional matching gain in front.
+
+    Shared by the measurement pass and the encode so the two see the same
+    signal: measuring the raw segment and then applying a compressor would
+    give a gain computed for audio that no longer exists.
+    """
+    out: list[str] = []
+    if abs(gain_db) > 0.05:
+        out.append(f"volume={gain_db:.2f}dB")
+    if cfg.normalize_audio:
+        out.append("dynaudnorm=f=200:g=5")
+    # The video fade stays constant so the reel keeps one visual rhythm, but the
+    # audio fade adapts: a clip that ends in a pause needs almost none, while one
+    # cut off mid-sound needs a longer ramp or the stop reads as a dropout.
+    a_fade = cfg.fade if seg.meta.get("ends_in_silence") else min(cfg.fade * 2.5, 0.6)
+    if a_fade > 0 and seg.duration > a_fade * 2:
+        out_at = max(0.0, seg.duration - a_fade)
+        out.append(f"afade=t=in:st=0:d={min(cfg.fade, a_fade):.3f}")
+        out.append(f"afade=t=out:st={out_at:.3f}:d={a_fade:.3f}")
+    out.append("asetpts=PTS-STARTPTS")
+    return out
+
+
+def measure_loudness(info: VideoInfo, seg: Candidate, cfg: RenderConfig) -> float | None:
+    """Integrated loudness of one clip in LUFS, or ``None`` if unmeasurable.
+
+    Decodes audio only, through the same filter chain the encode will use.
+    """
+    args = cmd(
+        "ffmpeg -v info -nostdin -y -accurate_seek -ss {start} -t {dur} -i {src} "
+        "-map 0:a:0 -af {af} -f null -",
+        start=f"{seg.start:.3f}",
+        dur=f"{seg.duration:.3f}",
+        src=info.path,
+        af=",".join([*audio_filters(seg, cfg), "loudnorm=print_format=json"]),
+    )
+    proc = subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    text = proc.stderr.decode("utf-8", "replace")
+    match = re.search(r'"input_i"\s*:\s*"(-?[\d.]+|-inf)"', text)
+    if not match or match.group(1) == "-inf":
+        return None
+    return float(match.group(1))
+
+
+def plan_loudness_gains(
+    info: VideoInfo,
+    segments: list[Candidate],
+    cfg: RenderConfig,
+    *,
+    progress: Progress | None = None,
+) -> list[float]:
+    """Per-clip gain in dB that brings the reel to a consistent loudness.
+
+    Two-pass, because there is no other way: integrated loudness is a property
+    of a whole clip, so you cannot know the right gain until you have heard it
+    all. ``dynaudnorm`` alone does not solve this — it evens out dynamics
+    *inside* a clip and says nothing about how two clips compare, which is
+    exactly the artefact people notice when a reel jumps in volume halfway.
+
+    ``loudness_match`` is deliberately not forced to 1.0. Matching every clip
+    to the same number makes a quiet moment and a stadium roar equally loud,
+    which is technically correct and editorially wrong. At 0.9 the spread
+    collapses to a tenth of what it was — inaudible as a jump, still audible
+    as character.
+    """
+    if not info.has_audio or cfg.loudness_match <= 0:
+        return [0.0] * len(segments)
+
+    gains: list[float] = []
+    for idx, seg in enumerate(segments):
+        measured = measure_loudness(info, seg, cfg)
+        if measured is None or measured < -50.0:
+            # Silence, or close enough. Lifting it would only amplify the
+            # noise floor into something audible.
+            gains.append(0.0)
+        else:
+            wanted = (cfg.loudness_target - measured) * cfg.loudness_match
+            gains.append(float(max(-cfg.loudness_max_gain, min(cfg.loudness_max_gain, wanted))))
+        if progress:
+            progress((idx + 1) / len(segments), f"measuring {idx + 1}/{len(segments)}")
+    return gains
+
+
 def _encode_segment(
-    info: VideoInfo, seg: Candidate, dest: Path, cfg: RenderConfig, plan_key: str = "reframe"
+    info: VideoInfo,
+    seg: Candidate,
+    dest: Path,
+    cfg: RenderConfig,
+    plan_key: str = "reframe",
+    gain_db: float = 0.0,
 ) -> None:
     filters = []
     if cfg.reframe.mode != "off":
@@ -85,18 +190,7 @@ def _encode_segment(
         filters.append(f"fade=t=out:st={out_at:.3f}:d={cfg.fade:.3f}")
     filters.append("setpts=PTS-STARTPTS")
 
-    afilters = []
-    if cfg.normalize_audio:
-        afilters.append("dynaudnorm=f=200:g=5")
-    # The video fade stays constant so the reel keeps one visual rhythm, but the
-    # audio fade adapts: a clip that ends in a pause needs almost none, while one
-    # cut off mid-sound needs a longer ramp or the stop reads as a dropout.
-    a_fade = cfg.fade if seg.meta.get("ends_in_silence") else min(cfg.fade * 2.5, 0.6)
-    if a_fade > 0 and seg.duration > a_fade * 2:
-        out_at = max(0.0, seg.duration - a_fade)
-        afilters.append(f"afade=t=in:st=0:d={min(cfg.fade, a_fade):.3f}")
-        afilters.append(f"afade=t=out:st={out_at:.3f}:d={a_fade:.3f}")
-    afilters.append("asetpts=PTS-STARTPTS")
+    afilters = audio_filters(seg, cfg, gain_db)
 
     # -ss before -i seeks fast; -accurate_seek keeps the cut frame-exact, which
     # matters more than the speed: a clip that starts on the wrong keyframe has

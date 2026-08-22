@@ -41,7 +41,17 @@ interesting it is to build. Items marked **help wanted** are good entry points.
       `sports-broadcast` / `sports-field` profiles.
 - [x] **A written method for adapting to a new domain**, in EXTENDING.md.
 
-## v0.6 — cut points, continued
+## Shipped in v0.6
+
+- [x] **Cross-clip loudness matching.** Two-pass EBU R128; the reel no longer
+      jumps in volume between clips.
+- [x] **The protected span is an interval, not a point.** Clips carry the
+      event bounds they were built from, so a guard cannot be placed on an
+      arbitrary frame inside a long exchange.
+- [x] **An agent-facing surface**: `contact-sheet`, `render --plan`,
+      `profiles`, `signals --json`, plus `AGENTS.md` and a skill package.
+
+## v0.7 — cut points, continued
 
 - [ ] **Auto-locate the facecam.** `react_to_facecam` needs the box to be
       right, which is the one thing a user has to supply by hand. A one-off
@@ -53,7 +63,7 @@ interesting it is to build. Items marked **help wanted** are good entry points.
       slow speaker with no gaps still gets cut mid-word. ASR word timings
       (behind the existing `[asr]` extra) would fix it. **help wanted**
 
-## v0.7 — reach
+## v0.8 — reach
 
 - [ ] **Twitch/YouTube VOD URLs as input**, via yt-dlp as an optional extra.
 - [ ] **Chat-log signal.** Twitch chat message rate is close to a free
@@ -63,7 +73,7 @@ interesting it is to build. Items marked **help wanted** are good entry points.
 - [ ] **Parallel batch workers.** One file at a time is right on a laptop and
       wasteful on a workstation.
 
-## v0.8 — deployments with more than one user
+## v0.9 — deployments with more than one user
 
 - [ ] Pluggable queue backend (RQ or arq) behind the existing `JobStore`
       interface; the in-process worker stays the default.
@@ -109,6 +119,16 @@ frame. Tennis has rallies: the interesting unit is twenty seconds long and its
 "peak" is arbitrary. Everything here assumes a moment with rolls around it,
 and a rally probably wants the region itself kept whole instead. Nobody has
 designed that yet.
+
+**How do you evaluate any of this?** Every default in the project is a
+reasoned guess verified against synthetic footage, which proves the code does
+what was intended and not that the intention matches real video. There is no
+labelled corpus, no metric and no way to review a profile PR on evidence.
+The blocker is that a benchmark cannot ship the footage — so the format has
+to be labels-only, with users supplying their own video. A `hypecut label`
+command built on `contact-sheet` (propose generously, human keeps or drops)
+would remove the authoring burden without making an AI the ground truth.
+This is the largest open question in the project.
 
 **Should trimming be allowed to override a snap?** Right now a shot boundary
 always wins, on the grounds that a cut is evidence and a pause is a guess. But

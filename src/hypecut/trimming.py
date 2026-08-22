@@ -22,6 +22,7 @@ from __future__ import annotations
 import numpy as np
 
 from .config import SegmentConfig
+from .segments import out_point_floor
 from .types import AnalysisContext, Candidate
 
 __all__ = ["level_db", "silence_mask", "ends_quiet", "find_pause", "trim_segments"]
@@ -127,7 +128,8 @@ def trim_segments(
 
     for seg in segments:
         snapped = seg.meta.get("snapped") or {}
-        peak = float(seg.meta.get("peak_time", (seg.start + seg.end) / 2))
+        # Same rule as the snapper: protect the event, not a point inside it.
+        event_lo, _ = seg.protected()
         i0 = int(np.clip(seg.start * ctx.grid_fps, 0, level.size - 1))
         i1 = int(np.clip(seg.end * ctx.grid_fps, i0 + 1, level.size))
 
@@ -150,7 +152,7 @@ def trim_segments(
                 window=start_window,
                 min_silence=cfg.min_silence,
                 lo=max(0.0, seg.start - start_window),
-                hi=min(peak, seg.start + start_window),
+                hi=min(event_lo, seg.start + start_window),
                 prefer="end",
             )
             if edge is not None:
@@ -167,7 +169,7 @@ def trim_segments(
                 target=seg.end,
                 window=end_window,
                 min_silence=cfg.min_silence,
-                lo=peak + cfg.snap_guard,
+                lo=out_point_floor(seg, cfg.snap_guard),
                 hi=min(duration, seg.end + end_window),
                 prefer="start",
             )

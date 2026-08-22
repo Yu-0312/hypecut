@@ -92,6 +92,24 @@ class Candidate:
     def overlaps(self, other: Candidate) -> bool:
         return self.start < other.end and other.start < self.end
 
+    def protected(self) -> tuple[float, float]:
+        """The span that must survive: the event, not the padding around it.
+
+        A clip is an event plus rolls. Every stage that moves an edge —
+        snapping, trimming, the length clamp in ``merge`` — needs to know
+        which part is which, or it will happily trim into the thing the clip
+        exists for. For an instant (a kill, a goal) the span is degenerate and
+        this behaves exactly like the single peak it replaces; for a rally or
+        a teamfight it is the whole exchange.
+
+        Falls back to ``peak_time`` when a clip was built by hand and carries
+        no event bounds.
+        """
+        peak = float(self.meta.get("peak_time", (self.start + self.end) / 2))
+        lo = float(self.meta.get("event_start", peak))
+        hi = float(self.meta.get("event_end", peak))
+        return (lo, hi) if lo <= hi else (hi, lo)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "start": round(self.start, 3),

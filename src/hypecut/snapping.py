@@ -9,7 +9,10 @@ on the cut the game or the streamer's scene switcher already made, looks
 So this runs after selection: find the hard cuts, then let every edge travel
 up to a couple of seconds to reach one. Two guards keep it honest:
 
-* an edge never crosses the clip's peak (that is the moment being kept), and
+* an edge never crosses into the clip's *event* — the above-threshold span the
+  clip was built around, not merely its loudest frame. For a goal the two are
+  the same thing; for a twenty-second rally the loudest frame can be the third
+  shot, and a guard placed there would let the first third be trimmed away.
 * a snap that would violate the length budget is rejected rather than
   clamped, because a clip that is suddenly a second under ``min_duration``
   is a worse outcome than an unsnapped edge.
@@ -27,6 +30,7 @@ import numpy as np
 
 from . import ffmpeg as ff
 from .config import SegmentConfig
+from .segments import out_point_floor
 from .types import AnalysisContext, Candidate
 
 __all__ = [
@@ -271,16 +275,21 @@ def snap_segments(
     end_window = max(cfg.snap_window, cfg.post_roll)
 
     for seg in segments:
-        peak = float(seg.meta.get("peak_time", (seg.start + seg.end) / 2))
+        # The event, not the padding. For an instant this is a single point and
+        # the guards below behave exactly as they did when that was all there
+        # was; for a rally or a teamfight it is the whole exchange, and the
+        # difference matters — the loudest frame of a twenty-second rally can
+        # be its third shot, and nothing should be allowed to trim to there.
+        event_lo, _ = seg.protected()
         moved: dict[str, float] = {}
         kinds: dict[str, str] = {}
 
-        # In-point: anywhere in the window, up to the peak itself. It may look
-        # wrong to let the start move forward until almost no wind-up is left,
-        # but a hard cut between the old start and the peak means that wind-up
-        # belonged to a different scene — keeping it would open the clip on
-        # unrelated footage. The peak is the hard stop; nothing may cross it.
-        found = _nearest(in_points, seg.start, start_window, lo=0.0, hi=peak)
+        # In-point: anywhere in the window, up to where the event begins. It may
+        # look wrong to let the start move forward until almost no wind-up is
+        # left, but a hard cut between the old start and the event means that
+        # wind-up belonged to a different scene — keeping it would open the clip
+        # on unrelated footage. The event is the hard stop.
+        found = _nearest(in_points, seg.start, start_window, lo=0.0, hi=event_lo)
         if found is not None and cfg.min_duration <= seg.end - found[0] <= cfg.max_duration:
             new_start, kind = found
             # Sub-frame precision only means something for a hard cut; a
@@ -291,10 +300,11 @@ def snap_segments(
             kinds["start"] = kind
             seg.start = max(0.0, new_start)
 
-        # Out-point: not a mirror image. Here ``snap_guard`` does apply — an
-        # end that lands right on the peak would cut the payoff off mid-beat,
-        # and unlike the in-point there is no "wrong scene" argument for it.
-        found = _nearest(out_points, seg.end, end_window, lo=peak + cfg.snap_guard, hi=duration)
+        # Out-point: not a mirror image. An end landing inside the event would
+        # cut the payoff off mid-beat, and unlike the in-point there is no
+        # "wrong scene" argument for doing so.
+        floor = out_point_floor(seg, cfg.snap_guard)
+        found = _nearest(out_points, seg.end, end_window, lo=floor, hi=duration)
         if found is not None and cfg.min_duration <= found[0] - seg.start <= cfg.max_duration:
             new_end, kind = found
             if cfg.snap_fine and kind == "cut":

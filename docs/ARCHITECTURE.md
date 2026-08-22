@@ -295,6 +295,42 @@ One constraint shapes the code: the whole filter chain is a single argv token,
 so no filter string may contain whitespace, and expressions carrying commas are
 single-quoted so ffmpeg does not read them as filter separators.
 
+## The protected span
+
+`build_candidates` derives a clip from an above-threshold region and then
+records that region's bounds on the clip as `event_start` / `event_end`.
+Everything downstream that moves an edge — snapping, trimming, the length
+clamp in `merge` — asks `Candidate.protected()` which part must survive.
+
+This used to be a single number, `peak_time`, and that was a real bug rather
+than a simplification. For a goal the loudest frame *is* the event, so a point
+describes it fine. For a twenty-second rally the maximum can be the third
+shot of twelve, and a guard placed there permits an edge to be dragged to it —
+legally deleting the first quarter of the exchange. Carrying the span costs
+two floats and removes the whole class of error.
+
+Degenerate spans fall back to the peak, so hand-built clips and anything
+without event bounds behave exactly as before.
+
+## Loudness, between clips and not just inside them
+
+`dynaudnorm` is a within-clip tool: it evens out dynamics in one piece of
+audio and knows nothing about the piece before it. The artefact everyone
+actually notices — a reel that jumps in volume halfway — lives *between*
+clips, so it needs a measurement that spans them.
+
+Two passes, because integrated loudness is a property of a whole clip and
+there is no way to know the right gain until you have heard it all: measure
+each segment through the same filter chain the encode will use, then prepend a
+static `volume` gain toward the target. Measuring the raw segment and then
+applying a compressor would compute a gain for audio that no longer exists,
+so the chain is built once and shared by both passes.
+
+`loudness_match` defaults to 0.9, not 1.0. Full matching is the obvious
+choice and the wrong one: it makes a whispered aside and a stadium roar
+equally loud. At 0.9 the spread collapses to a tenth — inaudible as a jump,
+still audible as character.
+
 ## Variants — one analysis, several aspect ratios
 
 `Config.variants` maps a name to a partial `render` override. Everything
@@ -353,6 +389,10 @@ serialisation.
   ffmpeg already saturates the cores it is given, and running three encodes
   at once on a laptop makes all three slower while making progress reporting
   meaningless.
+* **No agent mode.** `contact-sheet`, `render --plan` and the JSON
+  catalogues exist because they are useful to people too. A separate code
+  path for models would be a second path to keep working, and the first sign
+  it had rotted would be a model quietly doing the wrong thing.
 * **No database.** Nothing here needs to survive a restart. Jobs are ephemeral
   by nature and a schema is a maintenance burden a v0.1 should not carry.
 * **No model in the default path.** The tool must work fully offline on a CPU

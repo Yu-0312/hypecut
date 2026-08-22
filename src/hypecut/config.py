@@ -148,7 +148,12 @@ class RenderConfig:
     preset: str = "veryfast"
     audio_bitrate: str = "192k"
     fade: float = 0.25
-    normalize_audio: bool = True
+    normalize_audio: bool = True  # even out dynamics *inside* each clip
+    # ...and match loudness *between* clips, which dynaudnorm cannot do. Two
+    # passes: measure each clip's integrated loudness, then apply a static gain.
+    loudness_target: float = -16.0  # LUFS; the usual target for web delivery
+    loudness_match: float = 0.9  # 0 disables; 1 flattens every clip to the target
+    loudness_max_gain: float = 12.0  # dB, so a near-silent clip cannot explode
     write_chapters: bool = True
     reframe: ReframeConfig = field(default_factory=ReframeConfig)
 

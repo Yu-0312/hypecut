@@ -18,7 +18,23 @@ from .config import SegmentConfig
 from .fusion import explain
 from .types import Candidate, SignalTrack
 
-__all__ = ["find_regions", "build_candidates", "merge", "select"]
+__all__ = ["find_regions", "build_candidates", "merge", "select", "out_point_floor"]
+
+
+def out_point_floor(seg: Candidate, guard: float) -> float:
+    """Earliest place a clip's out-point may be moved to.
+
+    Normally that is the end of the event: an edge must not cut the exchange
+    short. The exception is a clip the length budget already truncated
+    mid-event — there the event is being lost regardless of what any edge does,
+    so refusing to move would only mean ending on an arbitrary frame instead of
+    on a cut. In that case the only remaining requirement is to keep ``guard``
+    seconds of the opening.
+    """
+    lo, hi = seg.protected()
+    if hi <= seg.end:
+        return max(hi, lo + guard)
+    return lo + guard
 
 
 def find_regions(curve: np.ndarray, threshold: float) -> list[tuple[int, int]]:
@@ -75,16 +91,27 @@ def build_candidates(
         # the play rather than the roar.
         moment = max(0.0, float(times[peak_idx]) - lag)
 
-        # Grow short clips symmetrically around the moment instead of from the
+        # The span that must survive later edge moves. Its start is shifted by
+        # the lag (that is where the play was) and its end is not (the reaction
+        # is worth protecting too), so together they cover both.
+        event_start = max(0.0, float(times[i0]) - lag)
+        event_end = min(duration, float(times[min(i1, times.size - 1)]))
+
+        # Grow short clips symmetrically around the event instead of from the
         # left edge, so the interesting part stays centred.
         if end - start < cfg.min_duration:
+            centre = (event_start + max(event_start, event_end)) / 2.0
             half = cfg.min_duration / 2.0
-            start = max(0.0, moment - half)
+            start = max(0.0, centre - half)
             end = min(duration, start + cfg.min_duration)
             start = max(0.0, end - cfg.min_duration)
 
         score = float(curve[i0:i1].mean() * 0.5 + curve[peak_idx] * 0.5)
-        meta: dict[str, object] = {"peak_time": round(moment, 3)}
+        meta: dict[str, object] = {
+            "peak_time": round(moment, 3),
+            "event_start": round(event_start, 3),
+            "event_end": round(max(event_start, event_end), 3),
+        }
         if lag:
             meta["reaction_time"] = round(float(times[peak_idx]), 3)
         out.append(
@@ -115,11 +142,20 @@ def merge(candidates: list[Candidate], cfg: SegmentConfig) -> list[Candidate]:
             last.score = (last.score * weight_a + cand.score * weight_b) / total
             for key, value in cand.reasons.items():
                 last.reasons[key] = max(last.reasons.get(key, value), value)
+
+            # The merged clip covers both events, so its protected span does too.
+            a_lo, a_hi = last.protected()
+            b_lo, b_hi = cand.protected()
+            last.meta["event_start"] = round(min(a_lo, b_lo), 3)
+            last.meta["event_end"] = round(max(a_hi, b_hi), 3)
+
             if last.duration > cfg.max_duration:
-                # Keep the window around the strongest peak in the merge.
-                peak = last.meta.get("peak_time", (last.start + last.end) / 2)
-                half = cfg.max_duration / 2.0
-                start = max(last.start, peak - half)
+                # Too long to keep whole. Hold on to the event and drop padding
+                # rather than centring on a peak that may sit anywhere inside.
+                lo, hi = last.protected()
+                start = max(last.start, min(lo, hi - cfg.max_duration))
+                if hi - lo > cfg.max_duration:
+                    start = max(last.start, lo)  # the event alone overflows
                 last.start = start
                 last.end = min(last.end, start + cfg.max_duration)
         else:
