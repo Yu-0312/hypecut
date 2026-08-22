@@ -23,29 +23,40 @@ interesting it is to build. Items marked **help wanted** are good entry points.
       original plan was a face model behind an optional extra; a configured
       box turned out to give the same behaviour, verifiably, for nothing.
 
-## v0.4 — better cut points, continued
+## Shipped in v0.4
+
+- [x] **Dissolve detection.** Crossfades and fades are found by accumulated
+      difference plus a contrast dip, and treated as intervals: in-points land
+      on the far side, out-points on the near side.
+- [x] **One analysis, several aspect ratios.** `--also vertical --also square`
+      shares the decode, the scoring and the cut decisions; each framing is
+      planned separately while the frames are still in memory.
+- [x] **Batch mode.** `hypecut batch FOLDER` cuts every video in a directory
+      and carries on past individual failures.
+
+## v0.5 — cut points, continued
 
 - [ ] **Auto-locate the facecam.** `react_to_facecam` needs the box to be
       right, which is the one thing a user has to supply by hand. A one-off
       detection pass (optional extra) could find it and remove the setting.
       **help wanted**
-- [ ] **Dissolve detection.** Snapping only finds hard cuts today; fades and
-      wipes are missed. **help wanted**
+- [ ] **Wipe and slide detection.** Dissolves are covered; a wipe keeps its
+      contrast and so is invisible to the current test. **help wanted**
 - [ ] **Word-boundary trimming.** Pauses are found from loudness alone, so a
       slow speaker with no gaps still gets cut mid-word. ASR word timings
       (behind the existing `[asr]` extra) would fix it. **help wanted**
 
-## v0.5 — reach
+## v0.6 — reach
 
 - [ ] **Twitch/YouTube VOD URLs as input**, via yt-dlp as an optional extra.
 - [ ] **Chat-log signal.** Twitch chat message rate is close to a free
       human-labelled highlight track. Needs a log format adapter. **help wanted**
-- [ ] **Batch mode**: point at a folder, get one reel per file, or one reel
-      across all of them.
-- [ ] **One source, both aspect ratios** in a single pass — landscape reel plus
-      vertical cutdowns, sharing the analysis.
+- [ ] **One reel across a whole folder** — batch mode makes one reel per file
+      today; a season recap wants the opposite.
+- [ ] **Parallel batch workers.** One file at a time is right on a laptop and
+      wasteful on a workstation.
 
-## v0.6 — deployments with more than one user
+## v0.7 — deployments with more than one user
 
 - [ ] Pluggable queue backend (RQ or arq) behind the existing `JobStore`
       interface; the in-process worker stays the default.

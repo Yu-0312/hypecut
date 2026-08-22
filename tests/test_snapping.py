@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from hypecut.config import SegmentConfig
-from hypecut.snapping import boundary_strength, find_boundaries, snap_segments
+from hypecut.snapping import boundary_strength, find_boundaries, find_dissolves, snap_segments
 from hypecut.types import AnalysisContext, Candidate, VideoInfo
 
 
@@ -106,3 +106,102 @@ def test_snap_is_a_no_op_when_disabled_or_without_frames():
     ctx.gray = None
     snap_segments(ctx, [seg], SegmentConfig(snap_fine=False))
     assert seg.start == pytest.approx(8.4)
+
+
+def _gray_with_dissolve(
+    seconds: float = 20.0, dissolve: tuple[float, float] = (8.0, 9.5), grid_fps: float = 10.0
+) -> np.ndarray:
+    """Two textured shots joined by a linear crossfade."""
+    n = int(seconds * grid_fps)
+    h, w = 12, 16
+    rng = np.random.default_rng(5)
+    shot_a = rng.integers(0, 255, size=(h, w)).astype(np.float64)
+    shot_b = rng.integers(0, 255, size=(h, w)).astype(np.float64)
+
+    i0, i1 = int(dissolve[0] * grid_fps), int(dissolve[1] * grid_fps)
+    frames = np.zeros((n, h, w), dtype=np.uint8)
+    for i in range(n):
+        if i < i0:
+            frame = shot_a
+        elif i >= i1:
+            frame = shot_b
+        else:
+            alpha = (i - i0) / max(1, i1 - i0)
+            frame = shot_a * (1 - alpha) + shot_b * alpha
+        frames[i] = np.clip(frame, 0, 255).astype(np.uint8)
+    return frames
+
+
+def test_find_dissolves_locates_a_crossfade():
+    gray = _gray_with_dissolve(dissolve=(8.0, 9.5))
+    found = find_dissolves(gray, grid_fps=10.0)
+    assert len(found) == 1
+    start, end = found[0]
+    assert start == pytest.approx(8.0, abs=0.3)
+    assert end == pytest.approx(9.5, abs=0.3)
+
+
+def test_find_dissolves_ignores_a_hard_cut():
+    """A cut is one huge frame; the run is too short to be a transition."""
+    gray = _gray_with_cuts(20.0, [10.0])
+    assert find_dissolves(gray, grid_fps=10.0) == []
+
+
+def test_find_dissolves_ignores_sustained_motion():
+    """A pan is sustained and spike-free too — contrast is what separates them."""
+    rng = np.random.default_rng(1)
+    base = rng.integers(0, 255, size=(12, 60)).astype(np.uint8)
+    gray = np.stack([np.roll(base, shift=i, axis=1)[:, :16] for i in range(200)])
+    assert find_dissolves(gray, grid_fps=10.0) == []
+
+
+def test_static_footage_does_not_produce_phantom_cuts():
+    """With a near-zero baseline, flicker is thousands of times the median."""
+    gray = np.full((200, 12, 16), 120, dtype=np.uint8)
+    gray[70] = 121  # one level of compression flicker
+    gray[130] = 119
+    assert find_boundaries(gray, grid_fps=10.0).size == 0
+
+
+def test_snap_lands_on_the_far_side_of_a_dissolve_for_the_in_point():
+    gray = _gray_with_dissolve(dissolve=(8.0, 9.5))
+    ctx = _ctx(gray, fps=30.0)
+    cfg = SegmentConfig(snap_fine=False, min_duration=3.0, max_duration=25.0)
+    seg = Candidate(8.6, 16.0, 0.9, meta={"peak_time": 13.0})
+
+    snap_segments(ctx, [seg], cfg)
+
+    assert seg.start == pytest.approx(9.5, abs=0.3), "should open on the incoming shot"
+    assert seg.meta["snap_kind"]["start"] == "dissolve"
+
+
+def test_snap_lands_on_the_near_side_of_a_dissolve_for_the_out_point():
+    gray = _gray_with_dissolve(seconds=24.0, dissolve=(14.0, 15.5))
+    ctx = _ctx(gray, fps=30.0)
+    cfg = SegmentConfig(snap_fine=False, min_duration=3.0, max_duration=25.0)
+    seg = Candidate(6.0, 14.8, 0.9, meta={"peak_time": 10.0})
+
+    snap_segments(ctx, [seg], cfg)
+
+    assert seg.end == pytest.approx(14.0, abs=0.3), "should leave before the mix starts"
+    assert seg.meta["snap_kind"]["end"] == "dissolve"
+
+
+def test_dissolve_snapping_can_be_switched_off():
+    gray = _gray_with_dissolve(dissolve=(8.0, 9.5))
+    ctx = _ctx(gray, fps=30.0)
+    cfg = SegmentConfig(snap_fine=False, snap_to_dissolves=False, min_duration=3.0)
+    seg = Candidate(8.6, 16.0, 0.9, meta={"peak_time": 13.0})
+
+    snap_segments(ctx, [seg], cfg)
+
+    assert seg.meta.get("snap_kind", {}).get("start") != "dissolve"
+
+
+def test_a_hard_cut_beats_a_dissolve_edge_at_the_same_distance():
+    """Ties go to the more certain boundary."""
+    from hypecut.snapping import _merge_boundaries, _nearest
+
+    boundaries = _merge_boundaries(np.array([10.0]), [10.0])
+    found = _nearest(boundaries, target=10.0, window=1.0, lo=0.0, hi=20.0)
+    assert found == (10.0, "cut")

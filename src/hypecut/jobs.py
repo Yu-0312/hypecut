@@ -43,6 +43,7 @@ class Job:
     started_at: float | None = None
     finished_at: float | None = None
     output: str | None = None
+    variants: dict[str, str] = field(default_factory=dict)
     plan: dict[str, Any] | None = None
     error: str | None = None
     options: dict[str, Any] = field(default_factory=dict)
@@ -53,6 +54,8 @@ class Job:
         # Never leak server-side paths to the browser.
         data.pop("source", None)
         data["output"] = bool(self.output)
+        # Names only — the browser fetches each by name, never by path.
+        data["variants"] = sorted(self.variants)
         return data
 
 
@@ -159,9 +162,20 @@ class JobStore:
                 )
 
             dest = self.outputs / f"{job.id}.mp4"
-            out, sidecar = render_plan(
-                plan, dest, cfg, progress=lambda p, m: progress(0.55 + p * 0.45, m)
-            )
+            if cfg.variants:
+                from .pipeline import render_variants
+
+                rendered = render_variants(
+                    plan, dest, cfg, progress=lambda p, m: progress(0.55 + p * 0.45, m)
+                )
+                out = rendered["base"]
+                job.variants = {k: str(v) for k, v in rendered.items() if k != "base"}
+                sidecar = out.with_suffix(".hypecut.json")
+                sidecar = sidecar if sidecar.exists() else None
+            else:
+                out, sidecar = render_plan(
+                    plan, dest, cfg, progress=lambda p, m: progress(0.55 + p * 0.45, m)
+                )
             job.output = str(out)
             job.plan = plan.to_dict()
             if sidecar:
@@ -187,7 +201,7 @@ class JobStore:
             job = self._jobs.pop(old, None)
             if job is None:
                 continue
-            for path in (job.source, job.output):
+            for path in (job.source, job.output, *job.variants.values()):
                 if path:
                     Path(path).unlink(missing_ok=True)
 
@@ -217,6 +231,8 @@ def _options_to_overrides(options: dict[str, Any]) -> dict[str, Any]:
         render["reframe"] = reframe
 
     out: dict[str, Any] = {}
+    if options.get("variants"):
+        out["variants"] = dict(options["variants"])
     if seg:
         out["segments"] = seg
     if render:

@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -34,7 +34,13 @@ from .snapping import snap_segments
 from .trimming import trim_segments
 from .types import AnalysisContext, HighlightPlan, SignalTrack, VideoInfo
 
-__all__ = ["analyze", "render_plan", "run", "PipelineResult", "Progress"]
+__all__ = ["analyze", "render_plan", "render_variants", "run", "PipelineResult", "Progress"]
+
+
+def _plan_key(variant: str | None) -> str:
+    """Where a variant's framing decisions live on each clip's metadata."""
+    return "reframe" if not variant else f"reframe:{variant}"
+
 
 Progress = Callable[[float, str], None]
 
@@ -47,6 +53,8 @@ class PipelineResult:
     output: Path | None
     sidecar: Path | None
     elapsed: float
+    #: Extra aspect-ratio renders of the same plan, keyed by variant name.
+    variants: dict[str, Path] = field(default_factory=dict)
 
 
 def _noop(_p: float, _m: str) -> None:
@@ -108,9 +116,15 @@ def analyze(
         # Strictly after snapping: this only touches edges no cut claimed.
         progress(0.92, "trimming to pauses")
         segments = trim_segments(ctx, segments, cfg.segments)
-    if cfg.render.reframe.mode != "off":
-        progress(0.95, "planning reframe")
-        segments = plan_reframe(ctx, segments, cfg.render.reframe)
+    # Every framing this run will produce is planned here, while the frames
+    # are still in memory. That is the whole point of variants: one decode,
+    # one set of cut decisions, several aspect ratios out.
+    for variant in [None, *sorted(cfg.variants)]:
+        reframe = cfg.render_for(variant).reframe
+        if reframe.mode == "off":
+            continue
+        progress(0.95, f"planning reframe ({variant or 'base'})")
+        segments = plan_reframe(ctx, segments, reframe, key=_plan_key(variant))
 
     return HighlightPlan(info=info, segments=segments, curve=curve, times=ctx.times, tracks=tracks)
 
@@ -122,11 +136,19 @@ def render_plan(
     *,
     progress: Progress | None = None,
     write_sidecar: bool = True,
+    variant: str | None = None,
 ) -> tuple[Path, Path | None]:
     """Encode a plan's segments to ``output``; optionally write the JSON sidecar."""
     progress = progress or _noop
     cfg = config or load_config()
-    out = render_reel(plan.info, plan.segments, output, cfg.render, progress=progress)
+    out = render_reel(
+        plan.info,
+        plan.segments,
+        output,
+        cfg.render_for(variant),
+        progress=progress,
+        plan_key=_plan_key(variant),
+    )
 
     sidecar: Path | None = None
     if write_sidecar:
@@ -136,6 +158,39 @@ def render_plan(
         sidecar.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
         write_edl(plan.segments, out.with_suffix(".edl"), fps=plan.info.fps or 30.0)
     return out, sidecar
+
+
+def render_variants(
+    plan: HighlightPlan, output: str | Path, config: Config, *, progress: Progress | None = None
+) -> dict[str, Path]:
+    """Render the base output plus every configured variant from one plan.
+
+    Variant files sit next to the base one with the variant name appended,
+    so ``reel.mp4`` gains ``reel_vertical.mp4``. Encoding is the only work
+    repeated — the decode, the scoring and the cut decisions are shared.
+    """
+    progress = progress or _noop
+    output = Path(output)
+    names: list[str | None] = [None, *sorted(config.variants)]
+    outputs: dict[str, Path] = {}
+
+    for index, variant in enumerate(names):
+        dest = (
+            output
+            if variant is None
+            else output.with_name(f"{output.stem}_{variant}{output.suffix}")
+        )
+        lo, hi = index / len(names), (index + 1) / len(names)
+        out, _ = render_plan(
+            plan,
+            dest,
+            config,
+            progress=lambda p, m, lo=lo, hi=hi: progress(lo + (hi - lo) * p, m),
+            write_sidecar=variant is None,
+            variant=variant,
+        )
+        outputs[variant or "base"] = out
+    return outputs
 
 
 def run(
@@ -157,6 +212,19 @@ def run(
         return inner
 
     plan = analyze(source, cfg, progress=stage(0.0, 0.6))
+
+    if cfg.variants:
+        outputs = render_variants(plan, output, cfg, progress=stage(0.6, 1.0))
+        base = outputs["base"]
+        sidecar = base.with_suffix(".hypecut.json")
+        return PipelineResult(
+            plan=plan,
+            output=base,
+            sidecar=sidecar if sidecar.exists() else None,
+            elapsed=time.time() - started,
+            variants={name: path for name, path in outputs.items() if name != "base"},
+        )
+
     out, sidecar = render_plan(plan, output, cfg, progress=stage(0.6, 1.0))
     return PipelineResult(plan=plan, output=out, sidecar=sidecar, elapsed=time.time() - started)
 

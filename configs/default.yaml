@@ -39,4 +39,10 @@ render:
     mode: "off"           # off | crop | stack | blur_pad — see configs/shorts.yaml
                           # (quoted: unquoted `off` is boolean false in YAML)
 
+# Extra aspect ratios rendered from the same analysis. Uncomment to get a
+# vertical cutdown alongside the landscape reel for the price of one encode.
+# variants:
+#   vertical:
+#     reframe: {mode: crop, width: 1080, height: 1920, track: true}
+
 refiners: [diversity, pacing]

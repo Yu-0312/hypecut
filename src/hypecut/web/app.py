@@ -24,6 +24,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import __version__
+from ..cli import VARIANT_PRESETS
 from ..jobs import JobStore
 from ..reframe import MODES as REFRAME_MODES
 
@@ -69,6 +70,7 @@ def meta() -> dict[str, Any]:
         "max_upload_mb": MAX_UPLOAD_MB,
         "allowed_suffixes": sorted(ALLOWED_SUFFIXES),
         "reframe_modes": list(REFRAME_MODES),
+        "variants": sorted(VARIANT_PRESETS),
         "profiles": sorted(p.name for p in Path("configs").glob("*.yaml"))
         if Path("configs").is_dir()
         else [],
@@ -90,11 +92,19 @@ async def create_job(
     snap_to_shots: bool = Form(True),
     trim_to_silence: bool = Form(True),
     react_to_facecam: bool = Form(False),
+    also: str = Form(""),
 ) -> JSONResponse:
     suffix = Path(file.filename or "").suffix.lower()
     if reframe not in REFRAME_MODES:
         raise HTTPException(
             status_code=422, detail=f"Unknown reframe mode {reframe!r}; expected {REFRAME_MODES}"
+        )
+    wanted = [name.strip() for name in also.split(",") if name.strip()]
+    unknown = [name for name in wanted if name not in VARIANT_PRESETS]
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown variant(s) {unknown}; available: {sorted(VARIANT_PRESETS)}",
         )
     if suffix not in ALLOWED_SUFFIXES:
         raise HTTPException(
@@ -130,6 +140,7 @@ async def create_job(
         "snap_to_shots": snap_to_shots,
         "trim_to_silence": trim_to_silence,
         "react_to_facecam": react_to_facecam,
+        "variants": {name: VARIANT_PRESETS[name] for name in dict.fromkeys(wanted)},
     }
     job = store.submit(safe_name, dest, options)
     return JSONResponse({"id": job.id, "status": job.status.value}, status_code=202)
@@ -163,6 +174,17 @@ def get_reel(job_id: str) -> FileResponse:
         raise HTTPException(status_code=404, detail="Reel not ready")
     stem = Path(job.filename).stem or "highlights"
     return FileResponse(job.output, media_type="video/mp4", filename=f"{stem}_highlights.mp4")
+
+
+@app.get("/api/jobs/{job_id}/reel/{variant}")
+def get_variant_reel(job_id: str, variant: str) -> FileResponse:
+    """One of the extra aspect ratios rendered from the same analysis."""
+    job = store.get(job_id)
+    path = (job.variants or {}).get(variant) if job else None
+    if not path or not Path(path).exists():
+        raise HTTPException(status_code=404, detail=f"No {variant!r} render for this job")
+    stem = Path(job.filename).stem or "highlights"  # type: ignore[union-attr]
+    return FileResponse(path, media_type="video/mp4", filename=f"{stem}_{variant}.mp4")
 
 
 @app.delete("/api/jobs/{job_id}")

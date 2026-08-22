@@ -189,3 +189,51 @@ def test_a_snapped_edge_is_never_overwritten_by_trimming(sample_vod):
     for seg in plan.segments:
         overlap = set(seg.meta.get("snapped", {})) & set(seg.meta.get("trimmed", {}))
         assert not overlap, f"{overlap} was decided twice"
+
+
+@requires_ffmpeg
+def test_one_analysis_renders_several_aspect_ratios(sample_vod, tmp_path):
+    """The point of variants: decode and decide once, encode several times."""
+    from hypecut.ffmpeg import probe
+    from hypecut.pipeline import render_variants
+
+    cfg = Config().merged(
+        {
+            "segments": {"percentile": 88, "target_duration": 12.0},
+            "render": {"fade": 0.1},
+            "variants": {
+                "vertical": {"reframe": {"mode": "crop", "width": 540, "height": 960}},
+                "square": {"reframe": {"mode": "crop", "width": 480, "height": 480}},
+            },
+        }
+    )
+    plan = analyze(sample_vod, cfg)
+    assert plan.segments
+
+    outputs = render_variants(plan, tmp_path / "reel.mp4", cfg)
+
+    assert set(outputs) == {"base", "vertical", "square"}
+    assert outputs["vertical"].name == "reel_vertical.mp4"
+    base = probe(outputs["base"])
+    assert (base.width, base.height) == (320, 180), "the base output keeps the source shape"
+    assert (probe(outputs["vertical"]).width, probe(outputs["vertical"]).height) == (540, 960)
+    assert (probe(outputs["square"]).width, probe(outputs["square"]).height) == (480, 480)
+
+    # Each variant's framing is planned separately and recorded separately.
+    seg = plan.segments[0]
+    assert "reframe:vertical" in seg.meta and "reframe:square" in seg.meta
+
+
+@requires_ffmpeg
+def test_run_reports_variant_outputs(sample_vod, tmp_path):
+    cfg = Config().merged(
+        {
+            "segments": {"percentile": 88, "target_duration": 10.0},
+            "render": {"fade": 0.1},
+            "variants": {"vertical": {"reframe": {"mode": "crop", "width": 540, "height": 960}}},
+        }
+    )
+    result = run(sample_vod, tmp_path / "reel.mp4", cfg)
+    assert set(result.variants) == {"vertical"}
+    assert result.variants["vertical"].exists()
+    assert result.sidecar is not None and result.sidecar.exists()

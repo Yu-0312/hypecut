@@ -61,3 +61,14 @@ refiner_params:
     tolerance: 5.0
   diversity:
     min_gap: 90.0
+
+# Extra renders of the *same* analysis. The base output above is already 9:16,
+# so this adds a square cutdown for feeds that prefer 1:1. Each entry is a
+# partial `render` override; anything it does not mention is inherited.
+variants:
+  square:
+    reframe:
+      mode: crop
+      width: 1080
+      height: 1080
+      track: true

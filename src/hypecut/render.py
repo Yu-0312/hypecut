@@ -32,6 +32,7 @@ def render_reel(
     *,
     progress: Progress | None = None,
     workdir: str | Path | None = None,
+    plan_key: str = "reframe",
 ) -> Path:
     """Encode ``segments`` from ``info.path`` into a single file at ``output``."""
     require_ffmpeg()
@@ -49,7 +50,7 @@ def render_reel(
     try:
         for idx, seg in enumerate(segments):
             part = tmp_root / f"part_{idx:04d}.mp4"
-            _encode_segment(info, seg, part, cfg)
+            _encode_segment(info, seg, part, cfg, plan_key)
             parts.append(part)
             if progress:
                 progress((idx + 1) / (len(segments) + 1), f"clip {idx + 1}/{len(segments)}")
@@ -63,12 +64,14 @@ def render_reel(
             shutil.rmtree(tmp_root, ignore_errors=True)
 
 
-def _encode_segment(info: VideoInfo, seg: Candidate, dest: Path, cfg: RenderConfig) -> None:
+def _encode_segment(
+    info: VideoInfo, seg: Candidate, dest: Path, cfg: RenderConfig, plan_key: str = "reframe"
+) -> None:
     filters = []
     if cfg.reframe.mode != "off":
         # Reframing decides the whole geometry; a scale/pad on top of it would
         # only undo the crop it just made.
-        filters.extend(geometry_filters(info, seg, cfg.reframe))
+        filters.extend(geometry_filters(info, seg, cfg.reframe, plan_key))
     elif cfg.width and cfg.height:
         filters.append(
             f"scale={cfg.width}:{cfg.height}:force_original_aspect_ratio=decrease,"

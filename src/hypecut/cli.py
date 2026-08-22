@@ -21,7 +21,16 @@ from .config import Config, load_config
 from .ffmpeg import FFmpegError, FFmpegNotFound
 from .reframe import MODES as REFRAME_MODES
 
-__all__ = ["main", "build_parser"]
+__all__ = ["main", "build_parser", "VARIANT_PRESETS"]
+
+#: Named extra renders for ``--also``. Each is a partial ``render`` override
+#: applied on top of whatever the profile already says.
+VARIANT_PRESETS: dict[str, dict[str, object]] = {
+    "vertical": {"reframe": {"mode": "crop", "width": 1080, "height": 1920, "track": True}},
+    "square": {"reframe": {"mode": "crop", "width": 1080, "height": 1080, "track": True}},
+    "stack": {"reframe": {"mode": "stack", "width": 1080, "height": 1920}},
+    "blurred": {"reframe": {"mode": "blur_pad", "width": 1080, "height": 1920}},
+}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -94,6 +103,17 @@ def build_parser() -> argparse.ArgumentParser:
             action="store_true",
             help="in crop mode, pull the frame toward the facecam when it is busy",
         )
+        p.add_argument(
+            "--also",
+            action="append",
+            default=None,
+            metavar="VARIANT",
+            choices=sorted(VARIANT_PRESETS),
+            help=(
+                "render an extra aspect ratio from the same analysis (repeatable): "
+                + ", ".join(sorted(VARIANT_PRESETS))
+            ),
+        )
         p.add_argument("-q", "--quiet", action="store_true")
 
     cut = sub.add_parser("cut", help="analyse and render a highlight reel")
@@ -103,6 +123,21 @@ def build_parser() -> argparse.ArgumentParser:
     cut.add_argument("--height", type=int, help="output height")
     cut.add_argument("--crf", type=int, help="x264 quality (lower = better)")
     cut.add_argument("--no-sidecar", action="store_true", help="skip JSON/EDL output")
+
+    batch = sub.add_parser("batch", help="cut every video in a folder")
+    add_common(batch)
+    batch.add_argument("-o", "--output-dir", default=None, help="where reels are written")
+    batch.add_argument(
+        "--pattern",
+        action="append",
+        default=None,
+        metavar="GLOB",
+        help="which files to pick up (repeatable, default: common video extensions)",
+    )
+    batch.add_argument("--recursive", action="store_true", help="descend into subfolders")
+    batch.add_argument(
+        "--overwrite", action="store_true", help="re-cut files whose reel already exists"
+    )
 
     ana = sub.add_parser("analyze", help="propose clips without encoding")
     add_common(ana)
@@ -165,7 +200,14 @@ def _config_from_args(args: argparse.Namespace) -> Config:
                 reframe[key] = getattr(args, key)
         render["reframe"] = reframe
 
+    if args.also:
+        overrides_variants = {name: VARIANT_PRESETS[name] for name in dict.fromkeys(args.also)}
+    else:
+        overrides_variants = {}
+
     overrides: dict[str, object] = {}
+    if overrides_variants:
+        overrides["variants"] = overrides_variants
     if seg:
         overrides["segments"] = seg
     if render:
@@ -173,6 +215,75 @@ def _config_from_args(args: argparse.Namespace) -> Config:
     if args.refiner:
         overrides["refiners"] = args.refiner
     return cfg.merged(overrides) if overrides else cfg
+
+
+BATCH_PATTERNS = ("*.mp4", "*.mkv", "*.mov", "*.webm", "*.avi", "*.flv", "*.ts", "*.m4v")
+
+
+def _collect(root: Path, patterns: list[str] | None, recursive: bool) -> list[Path]:
+    """Every video under ``root`` matching ``patterns``, de-duplicated and sorted."""
+    globber = root.rglob if recursive else root.glob
+    found: set[Path] = set()
+    for pattern in patterns or BATCH_PATTERNS:
+        found.update(p for p in globber(pattern) if p.is_file())
+    return sorted(found)
+
+
+def _run_batch(args: argparse.Namespace, cfg: Config, report) -> int:
+    """Cut every video in a folder, carrying on past individual failures.
+
+    A batch that aborts on the first bad file is useless for the job people
+    actually have — a directory of recordings, one of which is truncated. Each
+    failure is reported and counted; the exit code reflects whether any failed.
+    """
+    from .pipeline import run as run_one
+
+    root = Path(args.source)
+    if not root.is_dir():
+        print(f"error: {root} is not a directory", file=sys.stderr)
+        return 2
+
+    sources = _collect(root, args.pattern, args.recursive)
+    if not sources:
+        print(f"No videos found under {root}", file=sys.stderr)
+        return 1
+
+    out_dir = Path(args.output_dir) if args.output_dir else root / "highlights"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    sources = [s for s in sources if out_dir not in s.parents]
+
+    done: list[tuple[Path, Path]] = []
+    skipped: list[Path] = []
+    failed: list[tuple[Path, str]] = []
+
+    for index, source in enumerate(sources, start=1):
+        dest = out_dir / f"{source.stem}_highlights.mp4"
+        if dest.exists() and not args.overwrite:
+            skipped.append(source)
+            continue
+        if not args.quiet:
+            print(f"\n[{index}/{len(sources)}] {source.name}", file=sys.stderr)
+        try:
+            result = run_one(source, dest, cfg, progress=report)
+            done.append((source, result.output or dest))
+        except KeyboardInterrupt:  # pragma: no cover - user abort
+            print("\ninterrupted", file=sys.stderr)
+            return 130
+        except Exception as exc:
+            # One bad file must not end the run. Flatten the message: ffmpeg
+            # errors put the useful part on the *second* line, so keeping only
+            # the first would report "ffprobe failed" and nothing about why.
+            reason = " ".join(str(exc).split())
+            failed.append((source, reason[:160]))
+
+    print(f"\n{len(done)} cut, {len(skipped)} skipped, {len(failed)} failed -> {out_dir}")
+    for source, dest in done:
+        print(f"  ok      {source.name} -> {dest.name}")
+    for source in skipped:
+        print(f"  skip    {source.name} (already cut; --overwrite to redo)")
+    for source, why in failed:
+        print(f"  failed  {source.name}: {why}", file=sys.stderr)
+    return 1 if failed else 0
 
 
 def _parse_box(text: str) -> list[float]:
@@ -239,11 +350,14 @@ def main(argv: list[str] | None = None) -> int:
         uvicorn.run("hypecut.web.app:app", host=args.host, port=args.port, reload=args.reload)
         return 0
 
-    from .pipeline import analyze, render_plan
+    from .pipeline import analyze, render_plan, render_variants
 
     try:
         cfg = _config_from_args(args)
         report = _progress(args.quiet)
+
+        if args.command == "batch":
+            return _run_batch(args, cfg, report)
 
         if args.command == "analyze":
             plan = analyze(args.source, cfg, progress=report)
@@ -268,16 +382,28 @@ def main(argv: list[str] | None = None) -> int:
                 "No highlights found. Try --percentile 85 or a different profile.", file=sys.stderr
             )
             return 1
-        out, sidecar = render_plan(
-            plan,
-            output,
-            cfg,
-            progress=lambda p, m: report(0.6 + p * 0.4, m),
-            write_sidecar=not args.no_sidecar,
-        )
+        if cfg.variants:
+            outputs = render_variants(
+                plan, output, cfg, progress=lambda p, m: report(0.6 + p * 0.4, m)
+            )
+            out = outputs["base"]
+            sidecar = out.with_suffix(".hypecut.json")
+            sidecar = sidecar if sidecar.exists() else None
+        else:
+            outputs = {}
+            out, sidecar = render_plan(
+                plan,
+                output,
+                cfg,
+                progress=lambda p, m: report(0.6 + p * 0.4, m),
+                write_sidecar=not args.no_sidecar,
+            )
         _summarise(plan, args.quiet)
         if not args.quiet:
             print(f"\nReel:    {out}")
+            for name, path in outputs.items():
+                if name != "base":
+                    print(f"  +{name:<9} {path}")
             if sidecar:
                 print(f"Cutlist: {sidecar}")
         return 0

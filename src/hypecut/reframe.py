@@ -70,9 +70,13 @@ def action_track(ctx: AnalysisContext, seg: Candidate, cfg: ReframeConfig) -> li
 
 
 def plan_reframe(
-    ctx: AnalysisContext, segments: list[Candidate], cfg: ReframeConfig
+    ctx: AnalysisContext, segments: list[Candidate], cfg: ReframeConfig, key: str = "reframe"
 ) -> list[Candidate]:
-    """Annotate each clip with how it should be reframed."""
+    """Annotate each clip with how it should be reframed.
+
+    ``key`` lets several framings of the same clip coexist, which is what
+    makes one analysis serve a landscape reel and a vertical cutdown at once.
+    """
     if cfg.mode == "off":
         return segments
     if cfg.mode not in MODES:
@@ -89,11 +93,13 @@ def plan_reframe(
                 # Panning reads as camera drift on gameplay footage; unless the
                 # user asks for it, holding the frame is the better default.
                 plan["x"] = round(float(np.median(track)), 4)
-        seg.meta["reframe"] = plan
+        seg.meta[key] = plan
     return segments
 
 
-def geometry_filters(info: VideoInfo, seg: Candidate, cfg: ReframeConfig) -> list[str]:
+def geometry_filters(
+    info: VideoInfo, seg: Candidate, cfg: ReframeConfig, key: str = "reframe"
+) -> list[str]:
     """ffmpeg filter chain that reframes one clip. Empty when disabled.
 
     Filters must contain no whitespace: the whole chain is passed as a single
@@ -103,7 +109,7 @@ def geometry_filters(info: VideoInfo, seg: Candidate, cfg: ReframeConfig) -> lis
     if cfg.mode == "off":
         return []
 
-    plan = seg.meta.get("reframe") or {"mode": cfg.mode}
+    plan = seg.meta.get(key) or {"mode": cfg.mode}
     mode = str(plan.get("mode", cfg.mode))
     out_w, out_h = _even(cfg.width), _even(cfg.height)
 

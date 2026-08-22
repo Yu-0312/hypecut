@@ -191,6 +191,26 @@ Rounding is deliberately late rather than early: the returned time is the
 frame *after* the largest difference. One frame late is invisible; one frame
 early shows a flash of the outgoing shot — exactly the artefact this removes.
 
+Two kinds of boundary are detected. A **hard cut** is one enormous frame
+difference. A **dissolve** spreads the same total change over a second or
+two, so no single frame stands out and a peak detector walks straight past
+it; the answer is to look at difference *accumulated* over a run rather than
+the maximum within it. That alone would also flag a camera pan — likewise
+sustained, likewise spike-free — so the discriminator is spatial contrast: a
+blend of two images is flatter than either, and a pan's contrast is not.
+
+Cuts detected *inside* a dissolve are dropped. A one-second crossfade is not
+spike-free at 10 Hz and some of its frames clear the cut detector's bar on
+their own, but they are the middle of one transition, not several — landing
+an edge there would put the clip in the mix between two shots.
+
+There is also an absolute floor on frame difference (1.5 luma levels), and it
+earns its place. On footage that holds perfectly still — a menu, a paused
+game — the local baseline collapses toward zero and a single frame of
+compression flicker measures as *hundreds of times* the baseline. Relative
+evidence alone calls that a shot change. The floor stays low because a cut
+between two dark scenes can be worth only two or three levels.
+
 ### Silence-aware trimming (`trimming.py`)
 
 The audio half of the same problem, and the only half available on footage
@@ -260,6 +280,25 @@ One constraint shapes the code: the whole filter chain is a single argv token,
 so no filter string may contain whitespace, and expressions carrying commas are
 single-quoted so ffmpeg does not read them as filter separators.
 
+## Variants — one analysis, several aspect ratios
+
+`Config.variants` maps a name to a partial `render` override. Everything
+before the encode is shared: one decode, one set of signals, one curve, one
+selection, one set of snapped edges. Only the encode runs per variant.
+
+The subtle part is framing. A vertical cutdown is not a letterboxed copy of
+the landscape reel — it needs its own crop centre, computed from the motion
+in each clip. That computation needs the decoded frames, which exist only
+during analysis, so *every* framing the run will produce is planned during
+`analyze()` and stored under its own metadata key (`reframe:vertical`). The
+renderer then stays a pure function of the plan, and the sidecar records how
+every variant was framed.
+
+The alternative — re-deriving the crop at render time — would either mean
+keeping the frames alive far past their usefulness or falling back to a naive
+centre crop. The first costs memory for the whole render; the second throws
+away the feature.
+
 ## Rendering
 
 Two-pass: every segment is re-encoded to an identical intermediate, then joined
@@ -295,6 +334,10 @@ serialisation.
 
 ## What is deliberately absent
 
+* **No parallel encoding of variants.** They are rendered one after another.
+  ffmpeg already saturates the cores it is given, and running three encodes
+  at once on a laptop makes all three slower while making progress reporting
+  meaningless.
 * **No database.** Nothing here needs to survive a restart. Jobs are ephemeral
   by nature and a schema is a maintenance burden a v0.1 should not carry.
 * **No model in the default path.** The tool must work fully offline on a CPU

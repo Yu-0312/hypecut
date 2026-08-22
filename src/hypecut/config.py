@@ -76,6 +76,7 @@ class SegmentConfig:
     snap_window: float = 2.0  # how far an edge may travel to reach a boundary
     snap_fine: bool = True  # re-check at native frame rate for frame accuracy
     snap_guard: float = 0.75  # minimum footage kept after the peak when snapping the end
+    snap_to_dissolves: bool = True  # also land on crossfades and fades, not just hard cuts
 
     # Silence-aware trimming — the audio half of the same problem. Only edges
     # that found no shot boundary are considered, so a real cut always wins.
@@ -158,6 +159,22 @@ class Config:
     render: RenderConfig = field(default_factory=RenderConfig)
     refiners: list[str] = field(default_factory=list)
     refiner_params: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    #: Extra renders of the *same* analysis, keyed by name. Each value is a
+    #: partial ``render`` override, so a landscape reel and a vertical cutdown
+    #: come out of one decode and one set of decisions instead of two runs.
+    variants: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    def render_for(self, variant: str | None = None) -> RenderConfig:
+        """The render config for the base output, or for a named variant."""
+        if not variant:
+            return self.render
+        if variant not in self.variants:
+            raise KeyError(
+                f"Unknown variant {variant!r}. Defined: {', '.join(sorted(self.variants)) or '-'}"
+            )
+        merged = _deep_merge(asdict(self.render), self.variants[variant])
+        return _from_dict(RenderConfig, merged)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

@@ -5,6 +5,32 @@ All notable changes are documented here. This project follows
 
 ## [Unreleased]
 
+## [0.4.0] — dissolves, variants, batch
+
+### Added
+- **Dissolve and fade detection.** Snapping now finds gradual transitions as
+  well as hard cuts, using accumulated difference with a spatial-contrast dip
+  to tell a crossfade from a camera pan. A dissolve is treated as an interval:
+  in-points land on its far side, out-points on its near side. Each snapped
+  edge records which kind it landed on (`meta.snap_kind`).
+  `segments.snap_to_dissolves` turns it off.
+- **Variants — one analysis, several aspect ratios.** `--also vertical --also
+  square` (or `Config.variants` in a profile) renders extra cutdowns from the
+  same decode and the same cut decisions. Every framing is planned during
+  analysis, so a vertical variant is centred on its own action track rather
+  than being a letterboxed copy. Available in the web UI too, with a download
+  link per variant.
+- **Batch mode.** `hypecut batch FOLDER -o OUTDIR [--recursive] [--pattern]`
+  cuts every video in a directory, skips ones already cut, carries on past
+  individual failures and reports what happened.
+- `Config.render_for(variant)` and `pipeline.render_variants()` in the API.
+
+### Fixed
+- Shot detection no longer invents boundaries in perfectly static footage. A
+  near-zero local baseline made a single frame of compression flicker measure
+  as hundreds of times "normal"; an absolute floor of 1.5 luma levels stops
+  that while staying below the smallest real cut (dark scene to dark scene).
+
 ## [0.3.0] — pauses and reactions
 
 ### Added

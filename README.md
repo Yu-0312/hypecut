@@ -90,6 +90,12 @@ hypecut cut vod.mp4 --reframe stack      # facecam on top, gameplay below
 # Vertical that commits to the facecam while the streamer is reacting
 hypecut cut vod.mp4 --vertical --react --facecam 0,0,0.26,0.3
 
+# One analysis, three aspect ratios
+hypecut cut vod.mp4 --also vertical --also square
+
+# A folder of recordings, one reel each
+hypecut batch ~/Recordings -o ~/Reels --recursive
+
 # Leave the edges exactly where the rolls put them
 hypecut cut vod.mp4 --no-snap --no-trim
 
@@ -137,14 +143,16 @@ video ─┤ decode×1 ├─► 10 Hz grid: tiny grayscale frames + mono audio
                                  ▼
                         merge → budget select
                                  │
-         snap edges to real cuts ┤  ±2 s, coarse then frame-exact
+         snap edges to real cuts ┤  hard cuts and dissolves
         trim the rest to pauses ─┤  only edges no cut claimed
-        plan the 9:16 crop ──────┤  from where the motion is
+        plan each framing ───────┤  one per aspect ratio wanted
                                  ▼
                         ffmpeg cut + concat
                                  │
-                                 ▼
-              reel.mp4 · .hypecut.json · .edl
+                    ┌────────────┼────────────┐
+                    ▼            ▼            ▼
+              reel.mp4   reel_vertical   reel_square
+                    └──── .hypecut.json · .edl ────┘
 ```
 
 The video is decoded exactly once, into a 96×54 grayscale plane at 10 Hz and
@@ -165,6 +173,11 @@ continuous shot looks *sliced*; the same clip started on the cut looks
 each accepted edge is re-checked at the source frame rate. Nothing may cross
 the clip's peak, and a snap that would break the length budget is refused.
 
+Crossfades and fades count too, and they get treated as the intervals they
+are: an in-point lands on the *far* side of a dissolve so the clip opens on
+the incoming shot, an out-point on the *near* side so it leaves before the
+picture starts mixing away.
+
 **What the cuts miss, the pauses catch.** A locked-off talking-head stream has
 no shot boundaries at all, so snapping has nothing to work with and edges land
 three words into a sentence. Any edge that found no boundary is then moved into
@@ -181,6 +194,12 @@ alternatives are there too: `--reframe stack` for facecam-over-gameplay, and
 `--facecam` box, the crop commits to the streamer while the webcam is busy and
 returns to the action when it isn't — the reaction is half the highlight, and a
 crop that averages the two frames neither.
+
+**One analysis, several aspect ratios.** `--also vertical --also square`
+renders extra cutdowns from the same decode and the same cut decisions — each
+framing is planned separately while the frames are still in memory, so the
+vertical crop is centred on its own action track rather than being a
+letterboxed copy. Only the encode is repeated.
 
 Full detail in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 

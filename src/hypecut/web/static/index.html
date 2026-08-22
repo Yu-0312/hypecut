@@ -154,6 +154,8 @@
         <span class="chip on" id="snap" title="Move clip edges onto nearby shot boundaries">snap to cuts</span>
         <span class="chip on" id="trim" title="Move un-snapped edges into nearby pauses">trim to pauses</span>
       </div>
+      <label>Also render (same analysis, extra encode)</label>
+      <div class="chips" id="also"></div>
 
       <button id="go" disabled>Find the highlights</button>
       <div class="err" id="err"></div>
@@ -179,6 +181,7 @@
 const $ = (id) => document.getElementById(id);
 let file = null, poll = null, chosenRefiners = new Set(["diversity", "pacing"]);
 let reframeMode = "off";
+const alsoWanted = new Set();
 
 const sliders = [
   ["target", "v-target", (v) => v + "s"],
@@ -194,6 +197,18 @@ sliders.forEach(([id, out, fmt]) => {
 
 fetch("/api/meta").then((r) => r.json()).then((m) => {
   $("ver").textContent = "v" + m.version;
+  const alsoBox = $("also");
+  (m.variants || []).forEach((name) => {
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    chip.textContent = name;
+    chip.onclick = () => {
+      alsoWanted.has(name) ? alsoWanted.delete(name) : alsoWanted.add(name);
+      chip.classList.toggle("on");
+    };
+    alsoBox.appendChild(chip);
+  });
+
   const box = $("refiners");
   Object.entries(m.refiners).forEach(([name, desc]) => {
     const chip = document.createElement("span");
@@ -260,6 +275,7 @@ $("go").onclick = async () => {
   fd.append("snap_to_shots", $("snap").classList.contains("on"));
   fd.append("trim_to_silence", $("trim").classList.contains("on"));
   fd.append("react_to_facecam", $("react").classList.contains("on"));
+  fd.append("also", [...alsoWanted].join(","));
 
   try {
     const res = await fetch("/api/jobs", { method: "POST", body: fd });
@@ -288,7 +304,10 @@ function watch(id) {
       $("player").innerHTML =
         `<video controls src="/api/jobs/${id}/reel"></video>` +
         `<a class="dl" href="/api/jobs/${id}/reel" download>Download reel</a> · ` +
-        `<a class="dl" href="/api/jobs/${id}/plan" target="_blank">cut list JSON</a>`;
+        `<a class="dl" href="/api/jobs/${id}/plan" target="_blank">cut list JSON</a>` +
+        (job.variants || [])
+          .map((v) => ` · <a class="dl" href="/api/jobs/${id}/reel/${v}" download>${v}</a>`)
+          .join("");
     }
     if (job.status === "failed") {
       clearInterval(poll);
