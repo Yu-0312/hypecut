@@ -1,0 +1,33 @@
+# Balanced profile — a sensible starting point for any gameplay capture.
+# Copy this file, change the numbers, pass it with `--profile my.yaml`.
+profile: default
+
+signals:
+  enabled: [audio_rms, audio_transient, scene_change, motion, roi_activity]
+  weights:
+    audio_rms: 1.0
+    audio_transient: 1.2
+    scene_change: 0.6
+    motion: 0.8
+    roi_activity: 1.0
+  grid_fps: 10.0          # analysis resolution; 10 Hz is plenty and cheap
+  smooth_seconds: 1.5     # blur the curve so single frames cannot win
+
+segments:
+  min_duration: 4.0
+  max_duration: 20.0
+  pre_roll: 3.0           # seconds of wind-up before the spike
+  post_roll: 2.0          # seconds of reaction after it
+  merge_gap: 2.0
+  percentile: 92.0        # "highlight" = top 8% of excitement
+  max_clips: 20
+  target_duration: 120.0  # null disables the budget
+
+render:
+  crf: 20
+  preset: veryfast
+  fade: 0.25
+  normalize_audio: true
+  write_chapters: true
+
+refiners: [diversity, pacing]

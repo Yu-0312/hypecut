@@ -1,0 +1,43 @@
+# Tactical shooters (VALORANT, CS2, Rainbow Six).
+#
+# Rounds are short and the kill feed is the ground truth, so the ROI box is
+# weighted heavily and clips are kept tight. The box covers the top-right
+# corner where most shooters draw the feed; adjust it for your HUD scale by
+# running `hypecut analyze` and watching which clips light up roi_activity.
+profile: fps-shooter
+
+signals:
+  enabled: [audio_rms, audio_transient, scene_change, motion, roi_activity, flash]
+  weights:
+    audio_rms: 0.8
+    audio_transient: 1.4      # gunfire and kill stings are onsets
+    scene_change: 0.5
+    motion: 0.7
+    roi_activity: 1.6         # kill feed
+    flash: 0.6                # flashbangs, ults, spike explosion
+  params:
+    roi_activity:
+      box: [0.60, 0.02, 0.99, 0.26]
+      threshold: 7
+    audio_transient:
+      lag: 2
+  smooth_seconds: 1.0         # keep it snappy; rounds are short
+
+segments:
+  min_duration: 5.0
+  max_duration: 14.0
+  pre_roll: 3.5
+  post_roll: 2.5
+  merge_gap: 3.0
+  percentile: 94.0
+  max_clips: 16
+  target_duration: 150.0
+
+refiners: [diversity, pacing]
+refiner_params:
+  pacing:
+    ideal: 8.0
+    tolerance: 4.0
+  diversity:
+    min_gap: 60.0
+    strength: 0.4

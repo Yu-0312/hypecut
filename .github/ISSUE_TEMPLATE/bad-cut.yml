@@ -1,0 +1,36 @@
+name: Bad cut
+description: HypeCut picked the wrong moments, or missed the right ones
+labels: ["cut-quality"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the most useful issue type for the project. Concrete timestamps
+        beat general impressions.
+  - type: input
+    id: command
+    attributes:
+      label: Command or UI settings
+      placeholder: hypecut cut vod.mp4 --profile configs/fps-shooter.yaml --target 120
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes:
+      label: What it picked vs. what you'd have picked
+      placeholder: |
+        Picked 00:12:30 (a menu screen), missed 00:18:44 (a 3k).
+    validations: { required: true }
+  - type: textarea
+    id: sidecar
+    attributes:
+      label: Contents of the .hypecut.json sidecar
+      render: json
+  - type: input
+    id: footage
+    attributes:
+      label: What game / kind of footage
+  - type: input
+    id: env
+    attributes:
+      label: Version and OS
+      placeholder: hypecut 0.1.0, macOS 14, ffmpeg 6.1

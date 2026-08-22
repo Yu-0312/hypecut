@@ -1,0 +1,13 @@
+.git
+.github
+hypecut-data
+tests
+docs
+*.mp4
+*.mkv
+__pycache__
+*.egg-info
+.venv
+.pytest_cache
+.ruff_cache
+.mypy_cache

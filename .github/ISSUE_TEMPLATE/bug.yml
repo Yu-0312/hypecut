@@ -1,0 +1,24 @@
+name: Bug
+description: Something crashed or produced a broken file
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+    validations: { required: true }
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+    validations: { required: true }
+  - type: textarea
+    id: logs
+    attributes:
+      label: Full error output
+      render: shell
+  - type: input
+    id: env
+    attributes:
+      label: hypecut --version, OS, ffmpeg -version | head -1
+    validations: { required: true }

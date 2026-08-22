@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HypeCut — auto highlight reels</title>
+<style>
+  :root {
+    --bg: #0c0e13;
+    --panel: #141822;
+    --panel-2: #1b202c;
+    --line: #262d3b;
+    --text: #e8ecf4;
+    --muted: #8e98ad;
+    --accent: #ff5b4a;
+    --accent-2: #4ad9c0;
+    --ok: #55d187;
+    --warn: #ffc857;
+    --radius: 12px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", sans-serif;
+  }
+  header {
+    padding: 28px 24px 16px; max-width: 1080px; margin: 0 auto;
+    display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+  }
+  h1 { font-size: 24px; margin: 0; letter-spacing: -0.02em; }
+  h1 span { color: var(--accent); }
+  .tag {
+    font: 600 11px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em;
+    color: var(--muted); border: 1px solid var(--line); padding: 5px 8px; border-radius: 999px;
+  }
+  main { max-width: 1080px; margin: 0 auto; padding: 0 24px 80px; }
+  .grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 20px;
+  }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--muted); margin: 0 0 14px; font-weight: 600; }
+  #drop {
+    border: 1.5px dashed var(--line); border-radius: var(--radius);
+    padding: 34px 20px; text-align: center; cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  #drop.hot { border-color: var(--accent); background: #ff5b4a10; }
+  #drop strong { display: block; font-size: 16px; margin-bottom: 6px; }
+  #drop small { color: var(--muted); }
+  .file { margin-top: 12px; font: 13px var(--mono); color: var(--accent-2); word-break: break-all; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 14px 0 6px; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .row { display: flex; gap: 14px; }
+  .row > div { flex: 1; }
+  .val { font: 600 13px var(--mono); color: var(--text); float: right; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+  .chip {
+    border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px;
+    font-size: 13px; cursor: pointer; user-select: none; background: var(--panel-2);
+  }
+  .chip.on { border-color: var(--accent-2); color: var(--accent-2); }
+  button {
+    margin-top: 20px; width: 100%; padding: 12px 16px; border: 0; border-radius: 10px;
+    background: var(--accent); color: #fff; font-size: 15px; font-weight: 600; cursor: pointer;
+  }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .bar { height: 8px; background: var(--panel-2); border-radius: 999px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .3s; }
+  .status { display: flex; justify-content: space-between; font-size: 13px;
+    color: var(--muted); margin-bottom: 8px; }
+  .clip {
+    display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center;
+    padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14px;
+  }
+  .clip:last-child { border-bottom: 0; }
+  .clip .idx { font: 600 12px var(--mono); color: var(--muted); width: 22px; }
+  .clip .why { font-size: 12px; color: var(--muted); }
+  .clip .sc { font: 600 12px var(--mono); color: var(--accent-2); }
+  .empty { color: var(--muted); font-size: 14px; }
+  video { width: 100%; border-radius: 10px; margin-top: 12px; background: #000; }
+  a.dl { display: inline-block; margin-top: 12px; color: var(--accent-2); font-size: 14px; }
+  .err { color: var(--accent); font-size: 14px; white-space: pre-wrap; }
+  canvas { width: 100%; height: 64px; display: block; margin-top: 10px; }
+  footer { max-width: 1080px; margin: 0 auto; padding: 0 24px 40px; color: var(--muted); font-size: 13px; }
+  code { font: 12px var(--mono); background: var(--panel-2); padding: 2px 6px; border-radius: 5px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Hype<span>Cut</span></h1>
+  <span class="tag">auto highlight reels</span>
+  <span class="tag" id="ver">…</span>
+</header>
+
+<main>
+  <div class="grid">
+    <section class="card">
+      <h2>1 · Source</h2>
+      <div id="drop">
+        <strong>Drop a VOD here</strong>
+        <small>or click to choose — mp4, mkv, mov, webm, ts</small>
+      </div>
+      <div class="file" id="fname"></div>
+      <input id="picker" type="file" accept="video/*" hidden />
+
+      <h2 style="margin-top:24px">2 · Shape of the reel</h2>
+      <label>Target length <span class="val" id="v-target">120s</span></label>
+      <input type="range" id="target" min="30" max="600" step="15" value="120" />
+
+      <div class="row">
+        <div>
+          <label>Max clips <span class="val" id="v-clips">20</span></label>
+          <input type="range" id="clips" min="3" max="40" step="1" value="20" />
+        </div>
+        <div>
+          <label>Sensitivity <span class="val" id="v-pct">92</span></label>
+          <input type="range" id="pct" min="70" max="99" step="1" value="92" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>Min clip <span class="val" id="v-min">4s</span></label>
+          <input type="range" id="minlen" min="2" max="15" step="1" value="4" />
+        </div>
+        <div>
+          <label>Max clip <span class="val" id="v-max">20s</span></label>
+          <input type="range" id="maxlen" min="6" max="60" step="2" value="20" />
+        </div>
+      </div>
+
+      <label>Refiners</label>
+      <div class="chips" id="refiners"></div>
+
+      <button id="go" disabled>Find the highlights</button>
+      <div class="err" id="err"></div>
+    </section>
+
+    <section class="card">
+      <h2>3 · Result</h2>
+      <div class="status"><span id="msg">waiting for a file</span><span id="pct-txt">0%</span></div>
+      <div class="bar"><i id="fill"></i></div>
+      <canvas id="curve" width="600" height="64"></canvas>
+      <div id="player"></div>
+      <div id="clips" class="empty" style="margin-top:14px">No cut list yet.</div>
+    </section>
+  </div>
+</main>
+
+<footer>
+  Self-hosted. Nothing leaves this machine. CLI equivalent:
+  <code>hypecut cut vod.mp4 -o reel.mp4 --target 120</code>
+</footer>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let file = null, poll = null, chosenRefiners = new Set(["diversity", "pacing"]);
+
+const sliders = [
+  ["target", "v-target", (v) => v + "s"],
+  ["clips", "v-clips", (v) => v],
+  ["pct", "v-pct", (v) => v],
+  ["minlen", "v-min", (v) => v + "s"],
+  ["maxlen", "v-max", (v) => v + "s"],
+];
+sliders.forEach(([id, out, fmt]) => {
+  const el = $(id);
+  el.addEventListener("input", () => ($(out).textContent = fmt(el.value)));
+});
+
+fetch("/api/meta").then((r) => r.json()).then((m) => {
+  $("ver").textContent = "v" + m.version;
+  const box = $("refiners");
+  Object.entries(m.refiners).forEach(([name, desc]) => {
+    const chip = document.createElement("span");
+    chip.className = "chip" + (chosenRefiners.has(name) ? " on" : "");
+    chip.textContent = name;
+    chip.title = desc;
+    chip.onclick = () => {
+      chosenRefiners.has(name) ? chosenRefiners.delete(name) : chosenRefiners.add(name);
+      chip.classList.toggle("on");
+    };
+    box.appendChild(chip);
+  });
+}).catch(() => {});
+
+const drop = $("drop");
+drop.onclick = () => $("picker").click();
+["dragenter", "dragover"].forEach((e) =>
+  drop.addEventListener(e, (ev) => { ev.preventDefault(); drop.classList.add("hot"); }));
+["dragleave", "drop"].forEach((e) =>
+  drop.addEventListener(e, (ev) => { ev.preventDefault(); drop.classList.remove("hot"); }));
+drop.addEventListener("drop", (ev) => setFile(ev.dataTransfer.files[0]));
+$("picker").onchange = (ev) => setFile(ev.target.files[0]);
+
+function setFile(f) {
+  if (!f) return;
+  file = f;
+  $("fname").textContent = `${f.name} · ${(f.size / 1048576).toFixed(1)} MB`;
+  $("go").disabled = false;
+  $("msg").textContent = "ready";
+}
+
+$("go").onclick = async () => {
+  if (!file) return;
+  $("go").disabled = true;
+  $("err").textContent = "";
+  $("clips").className = "empty";
+  $("clips").textContent = "analysing…";
+  $("player").innerHTML = "";
+
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("target_duration", $("target").value);
+  fd.append("max_clips", $("clips").value);
+  fd.append("percentile", $("pct").value);
+  fd.append("min_duration", $("minlen").value);
+  fd.append("max_duration", $("maxlen").value);
+  fd.append("refiners", [...chosenRefiners].join(","));
+
+  try {
+    const res = await fetch("/api/jobs", { method: "POST", body: fd });
+    if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+    const { id } = await res.json();
+    watch(id);
+  } catch (e) {
+    $("err").textContent = e.message;
+    $("go").disabled = false;
+  }
+};
+
+function watch(id) {
+  clearInterval(poll);
+  poll = setInterval(async () => {
+    const job = await (await fetch("/api/jobs/" + id)).json();
+    const pct = Math.round((job.progress || 0) * 100);
+    $("fill").style.width = pct + "%";
+    $("pct-txt").textContent = pct + "%";
+    $("msg").textContent = job.message || job.status;
+
+    if (job.plan) renderClips(job.plan);
+    if (job.status === "done") {
+      clearInterval(poll);
+      $("go").disabled = false;
+      $("player").innerHTML =
+        `<video controls src="/api/jobs/${id}/reel"></video>` +
+        `<a class="dl" href="/api/jobs/${id}/reel" download>Download reel</a> · ` +
+        `<a class="dl" href="/api/jobs/${id}/plan" target="_blank">cut list JSON</a>`;
+    }
+    if (job.status === "failed") {
+      clearInterval(poll);
+      $("go").disabled = false;
+      $("err").textContent = job.error || "failed";
+    }
+  }, 900);
+}
+
+function renderClips(plan) {
+  const box = $("clips");
+  if (!plan.segments || !plan.segments.length) {
+    box.className = "empty";
+    box.textContent = "Nothing scored above the threshold — try a lower sensitivity.";
+    return;
+  }
+  box.className = "";
+  box.innerHTML = plan.segments.map((s, i) => {
+    const why = Object.entries(s.reasons || {})
+      .sort((a, b) => b[1] - a[1]).slice(0, 2)
+      .map(([k, v]) => `${k} ${v.toFixed(2)}`).join(" · ") || "—";
+    return `<div class="clip">
+      <span class="idx">${String(i + 1).padStart(2, "0")}</span>
+      <span>${hhmmss(s.start)} → ${hhmmss(s.end)}
+        <span class="why">(${s.duration.toFixed(1)}s · ${why})</span></span>
+      <span class="sc">${s.score.toFixed(3)}</span>
+    </div>`;
+  }).join("");
+  drawCurve(plan);
+}
+
+function drawCurve(plan) {
+  const c = $("curve"), ctx = c.getContext("2d");
+  const w = (c.width = c.clientWidth * 2), h = (c.height = 128);
+  ctx.clearRect(0, 0, w, h);
+  const dur = plan.source_duration || 1;
+  ctx.fillStyle = "#1b202c";
+  ctx.fillRect(0, h - 6, w, 6);
+  (plan.segments || []).forEach((s) => {
+    const x0 = (s.start / dur) * w, x1 = (s.end / dur) * w;
+    ctx.fillStyle = "#ff5b4a";
+    ctx.fillRect(x0, h - 6, Math.max(2, x1 - x0), 6);
+    ctx.fillStyle = "#4ad9c0";
+    const bh = Math.max(4, s.score * (h - 16));
+    ctx.fillRect(x0, h - 6 - bh, Math.max(2, x1 - x0), bh);
+  });
+}
+
+function hhmmss(t) {
+  t = Math.floor(t);
+  const p = (n) => String(n).padStart(2, "0");
+  return `${p(Math.floor(t / 3600))}:${p(Math.floor((t % 3600) / 60))}:${p(t % 60)}`;
+}
+</script>
+</body>
+</html>

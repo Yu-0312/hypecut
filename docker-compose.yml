@@ -1,0 +1,23 @@
+services:
+  hypecut:
+    build: .
+    image: hypecut:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./hypecut-data:/data
+      # Mount your own profiles to override the shipped ones:
+      # - ./configs:/app/configs:ro
+    environment:
+      HYPECUT_DATA_DIR: /data
+      HYPECUT_WORKERS: "1"          # one encode at a time; raise if you have cores
+      HYPECUT_MAX_UPLOAD_MB: "4096"
+    restart: unless-stopped
+    # Uncomment for GPU-accelerated refiners (hypecut[ml]):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]

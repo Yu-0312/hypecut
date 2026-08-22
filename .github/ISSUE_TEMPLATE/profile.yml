@@ -1,0 +1,19 @@
+name: Game profile request
+description: Ask for (or offer) tuning for a specific game
+labels: ["profile", "help wanted"]
+body:
+  - type: input
+    id: game
+    attributes:
+      label: Game
+    validations: { required: true }
+  - type: textarea
+    id: hud
+    attributes:
+      label: Where does the kill feed / scoreboard live on screen?
+      description: Rough normalised coordinates are ideal, e.g. top-right, x 0.6-1.0, y 0.0-0.25
+  - type: textarea
+    id: moments
+    attributes:
+      label: What counts as a highlight in this game?
+      placeholder: Multi-kills, clutch 1vX, big ultimate plays, comeback rounds…

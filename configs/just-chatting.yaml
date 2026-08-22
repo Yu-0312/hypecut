@@ -1,0 +1,31 @@
+# Talk-heavy streams, podcasts, reaction content.
+#
+# There is no HUD and the camera barely moves, so every visual signal is
+# dropped and the whole decision rests on voice. Longer clips, because a
+# funny bit needs its setup.
+profile: just-chatting
+
+signals:
+  enabled: [audio_rms, audio_transient, speech_band, scene_change]
+  weights:
+    audio_rms: 1.0
+    audio_transient: 0.8
+    speech_band: 1.5
+    scene_change: 0.2
+  smooth_seconds: 3.0
+
+segments:
+  min_duration: 10.0
+  max_duration: 45.0
+  pre_roll: 8.0
+  post_roll: 4.0
+  merge_gap: 6.0
+  percentile: 90.0
+  max_clips: 10
+  target_duration: 240.0
+
+refiners: [diversity, pacing, speech_keywords]
+refiner_params:
+  pacing:
+    ideal: 25.0
+    tolerance: 12.0
