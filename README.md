@@ -322,6 +322,16 @@ more games. Details and open design questions in
 [docs/ROADMAP.md](docs/ROADMAP.md) — that file is the best place to find
 something to work on.
 
+## Publishing your own copy
+
+```bash
+bash scripts/push-to-github.sh <your-github-username> hypecut public
+```
+
+Ordinary git and `gh` — read it before running it. It commits, creates the
+repository, pushes `main` and tags the current version. Without `gh` it
+prints the manual steps instead.
+
 ## Contributing
 
 Issues and PRs welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). The most useful
