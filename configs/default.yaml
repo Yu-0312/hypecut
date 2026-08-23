@@ -20,7 +20,9 @@ segments:
   post_roll: 2.0          # seconds of reaction after it
   merge_gap: 2.0
   percentile: 92.0        # "highlight" = top 8% of excitement
-  max_clips: 20
+  # No cap: a long recording spills into part 2, part 3 ... rather than
+  # silently losing its second half. `clips_per_reel` sets how big each is.
+  max_clips: 0
   target_duration: 120.0  # null disables the budget
   snap_to_shots: true     # move clip edges onto real cuts
   snap_window: 2.0        # ...travelling at most this far (or the roll, if larger)
@@ -45,4 +47,4 @@ render:
 #   vertical:
 #     reframe: {mode: crop, width: 1080, height: 1920, track: true}
 
-refiners: [diversity, pacing]
+refiners: [diversity, pacing, similarity]

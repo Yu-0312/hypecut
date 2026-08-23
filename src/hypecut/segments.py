@@ -149,6 +149,16 @@ def merge(candidates: list[Candidate], cfg: SegmentConfig) -> list[Candidate]:
             last.meta["event_start"] = round(min(a_lo, b_lo), 3)
             last.meta["event_end"] = round(max(a_hi, b_hi), 3)
 
+            # Carry provenance across the join. A merged clip that absorbed a
+            # flagged repeat is still a clip containing a repeat, and dropping
+            # the marker here would leave the cut list unable to explain a
+            # score the refiner had already lowered.
+            for key in ("repeat_penalty", "diversity_penalty"):
+                if key in cand.meta:
+                    last.meta[key] = max(last.meta.get(key, 0.0), cand.meta[key])
+            if "moment" in cand.meta:
+                last.meta.setdefault("moment", cand.meta["moment"])
+
             if last.duration > cfg.max_duration:
                 # Too long to keep whole. Hold on to the event and drop padding
                 # rather than centring on a peak that may sit anywhere inside.
@@ -164,27 +174,44 @@ def merge(candidates: list[Candidate], cfg: SegmentConfig) -> list[Candidate]:
 
 
 def select(candidates: list[Candidate], cfg: SegmentConfig) -> list[Candidate]:
-    """Keep the best clips within the clip-count and total-duration budget.
+    """Keep the best clips, then lay them out across one or more reels.
 
-    Selection is by score, output is by timeline order — a reel should still
-    tell the match's story front to back.
+    Two separate jobs, and keeping them separate is the point.
+
+    *Discarding* is by score and happens only if ``max_clips`` says so. Set it
+    to 0 and nothing worth keeping is ever thrown away.
+
+    *Laying out* is by time. Clips are walked front to back and spill into a
+    new reel whenever the current one is full — ``clips_per_reel`` clips, or
+    ``target_duration`` seconds, whichever comes first. So a three-hour match
+    becomes part 1, part 2, part 3 in chronological order rather than one
+    truncated reel with the second half silently missing. Each part is a
+    watchable length on its own, which is why the duration budget applies per
+    reel and not to the total.
+
+    Each clip carries its reel number and its rank within that reel in
+    ``meta``; :meth:`~hypecut.types.HighlightPlan.reels` regroups them.
     """
     pool = [c for c in candidates if c.score >= cfg.min_score and c.duration > 0.2]
-    pool.sort(key=lambda c: c.score, reverse=True)
+    if cfg.max_clips:
+        pool.sort(key=lambda c: c.score, reverse=True)
+        pool = pool[: cfg.max_clips]
+    pool.sort(key=lambda c: c.start)
 
-    chosen: list[Candidate] = []
-    total = 0.0
+    per_reel = max(1, int(cfg.clips_per_reel))
+    budget = cfg.target_duration or 0.0
+    reel, count, total = 1, 0, 0.0
+
     for cand in pool:
-        if cfg.max_clips and len(chosen) >= cfg.max_clips:
-            break
-        # Allow the first clip through even if it alone busts the budget,
-        # otherwise a short target yields an empty reel.
-        if chosen and cfg.target_duration and total + cand.duration > cfg.target_duration:
-            continue
-        chosen.append(cand)
+        # A reel that already has something in it rolls over when either limit
+        # would be exceeded. The "already has something" guard matters: a
+        # single clip longer than the whole budget must still land somewhere
+        # rather than pushing an empty reel ahead of itself forever.
+        if count and (count >= per_reel or (budget and total + cand.duration > budget)):
+            reel, count, total = reel + 1, 0, 0.0
+        count += 1
         total += cand.duration
+        cand.meta["reel"] = reel
+        cand.meta["rank"] = count
 
-    chosen.sort(key=lambda c: c.start)
-    for rank, cand in enumerate(chosen, start=1):
-        cand.meta["rank"] = rank
-    return chosen
+    return pool

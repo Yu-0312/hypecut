@@ -36,7 +36,9 @@ segments:
   reaction_lag: 2.0
   merge_gap: 4.0
   percentile: 93.0
-  max_clips: 15
+  # No cap: a long recording spills into part 2, part 3 ... rather than
+  # silently losing its second half. `clips_per_reel` sets how big each is.
+  max_clips: 0
   target_duration: 180.0
   snap_to_shots: false # one continuous shot; there is nothing to snap to
   trim_to_silence: true # so the pauses between cheers carry the edges
@@ -49,6 +51,9 @@ render:
   fade: 0.25
   normalize_audio: true # phone microphones need it more than a broadcast feed
 
+# No `similarity` here either — a phone locked off on the halfway line
+# frames every play the same way, and telling two attacks apart by motion
+# shape needs a camera that moves with them.
 refiners: [diversity, pacing]
 refiner_params:
   pacing:

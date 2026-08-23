@@ -41,6 +41,20 @@ class Signal(abc.ABC):
     requires_audio: bool = False
     #: If True the signal is skipped when frames could not be decoded.
     requires_video: bool = False
+    #: Smallest rise above this signal's own median that means anything, in
+    #: whatever units ``compute`` returns. Only :func:`hypecut.fusion.prominence`
+    #: reads it, and only to answer "does this video contain anything at all".
+    #:
+    #: It exists because a ratio has no opinion about scale. In footage that
+    #: never changes, ``scene_change`` has a median-absolute-deviation near
+    #: zero, so compression flicker of five hundredths of a luma level divides
+    #: out to "nine times the usual" — indistinguishable, as a ratio, from a
+    #: real cut. A signal that can say "below 1.5 luma levels is nothing"
+    #: closes that hole, and only the signal itself knows the number.
+    #:
+    #: Leave it 0.0 when the signal's output has no physically meaningful
+    #: unit; that abstains from the check rather than guessing.
+    noise_floor: float = 0.0
 
     def __init__(self, **params: Any) -> None:
         self.params = params
@@ -57,7 +71,9 @@ class Signal(abc.ABC):
     def track(self, ctx: AnalysisContext, weight: float = 1.0) -> SignalTrack:
         values = np.asarray(self.compute(ctx), dtype=np.float64)
         values = _fit(values, ctx.n)
-        return SignalTrack(name=self.name, values=values, weight=float(weight))
+        return SignalTrack(
+            name=self.name, values=values, weight=float(weight), noise_floor=float(self.noise_floor)
+        )
 
     def __repr__(self) -> str:  # pragma: no cover - debugging nicety
         return f"<Signal {self.name} {self.params}>"

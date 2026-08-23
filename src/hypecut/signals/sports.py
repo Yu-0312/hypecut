@@ -58,6 +58,8 @@ class CrowdRoar(Signal):
 
     description = "Sustained crowd noise — the roar that follows a goal, not the hit."
     requires_audio = True
+    # dB, same units as audio_rms.
+    noise_floor = 3.0
 
     def compute(self, ctx: AnalysisContext) -> np.ndarray:
         sustain = max(1, int(round(float(self.params.get("sustain_seconds", 2.0)) * ctx.grid_fps)))
@@ -144,6 +146,8 @@ class RoiChange(Signal):
 
     description = "Change isolated to a small box — scoreboards, clocks, counters."
     requires_video = True
+    # Luma levels of change beyond what the whole frame is doing.
+    noise_floor = 1.5
 
     def compute(self, ctx: AnalysisContext) -> np.ndarray:
         assert ctx.gray is not None

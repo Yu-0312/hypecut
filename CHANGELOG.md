@@ -5,6 +5,74 @@ All notable changes are documented here. This project follows
 
 ## [Unreleased]
 
+## [0.8.0] — nothing, too much, and twice
+
+Three changes that all answer the same complaint: the cut you get back should
+match what is actually in the video.
+
+### Added
+- **"Nothing here" is now an answer.** Every threshold in HypeCut is relative
+  to the video it is given — `fuse` even min-max rescales the curve to 0-1 —
+  so a percentile always selected *something*, and three hours of an idle
+  lobby came back as a confident reel of its least-boring moments.
+  `segments.min_prominence` measures how far the best moment stands above
+  that video's own background, in MAD-scale units per signal, and returns no
+  segments when the answer is "not far". Being a ratio it needs no
+  calibration corpus. `hypecut batch` counts such files separately from
+  failures; the web UI says so in words rather than showing an error.
+- **A cut too long for one reel becomes several.** Past
+  `segments.clips_per_reel` (10) clips or `segments.target_duration` seconds,
+  the cut spills into `reel.part2.mp4`, `reel.part3.mp4` and so on, split
+  chronologically so each part still tells the story in order. Each carries
+  its own cut list and EDL. There is no cap on the number of parts.
+- **`similarity`** — a refiner that de-duplicates by what the frames do
+  rather than by how far apart they are, at no extra decode or dependency
+  cost. Enabled by default where footage varies shot to shot.
+
+### Changed
+- **`segments.max_clips` now defaults to 0 (no cap)** and the shipped
+  profiles follow, except `shorts.yaml`. It is now the only setting that
+  *discards* highlights; length is `target_duration` and `clips_per_reel`'s
+  job. A three-hour recording no longer silently loses its second half.
+- **`segments.target_duration` is per reel**, not per run.
+- **The web UI asks two plain questions** — what kind of video, what shape —
+  and hides every threshold behind an "Advanced" fold that nothing requires.
+  It was eight technical controls before, four of which needed you to know
+  what a percentile is.
+- Refiners receive the decoded frames as `self.ctx`. Existing refiners are
+  unaffected; it is an attribute rather than a new argument for that reason.
+- `merge` carries `repeat_penalty`, `diversity_penalty` and `moment` across a
+  join, so a merged clip can still explain the score it was given.
+- `_describe_profiles` moved to `hypecut.config.describe_profiles` (public).
+
+### Notes on why replays are not duplicates
+
+The obvious de-duplication rule — drop clips that look like an earlier clip —
+is wrong for the footage this project targets. A broadcast shows the goal,
+then the slow-motion, then the angle from behind the net, and a reel that
+keeps all three is not repeating itself; that is what the edit is *for*.
+
+So similarity alone decides nothing here. Similar **and close together** is
+one event being shown again: kept, and tagged with a shared `moment` id.
+Similar **and far apart** is a different occurrence that happens to look
+identical — the same corridor, the same camera angle, the same celebration
+cam — and only that is penalised.
+
+Two measurements shaped the implementation, both of which contradicted the
+first design:
+
+- **Appearance does not work.** Averaged frames of a locked-camera football
+  match are the same green rectangle every time: every pair of clips scored
+  above 0.99 and the whole video read as one repeated moment. The descriptor
+  is built from frame *differences* instead, which cancels the static
+  background exactly and describes where the play happened.
+- **A ratio needs an absolute floor.** The same failure appeared in the
+  emptiness check: with a near-zero baseline, codec flicker of five
+  hundredths of a luma level divides out to "nine times the usual". Signals
+  now declare a `noise_floor` in their own units, and a clip that barely
+  moves declines to be compared at all rather than matching everything.
+
+
 ## [0.7.0] — evidence
 
 Until this release every default in HypeCut was a reasoned guess, checked

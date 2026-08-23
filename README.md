@@ -66,9 +66,12 @@ docker compose up -d         # → http://localhost:8000
 
 ### Web UI
 
-`hypecut serve` starts a single-page app: drop a file, set the reel length and
-sensitivity, watch the progress bar, download the result. Uploads and outputs
-stay on your machine — there is no external service anywhere in the pipeline.
+`hypecut serve` starts a single-page app. It asks two questions in plain
+language — what kind of video is this, what shape do you want — and neither
+is required; drop a file and press the button. Thresholds, detectors and edge
+placement are all there under "Advanced" for anyone who wants them, and
+folded away for everyone who does not. Uploads and outputs stay on your
+machine — there is no external service anywhere in the pipeline.
 
 ### CLI
 
@@ -152,7 +155,7 @@ video ─┤ decode×1 ├─► 10 Hz grid: tiny grayscale frames + mono audio
                                  ▼
                    top-N% regions → candidates (+ pre/post roll)
                                  │
-        stage 2 · refiners ──────┤  diversity · pacing
+        stage 2 · refiners ──────┤  diversity · pacing · similarity
         (candidates only)        │  clip_rerank · speech_keywords
                                  ▼
                         merge → budget select
@@ -167,6 +170,8 @@ video ─┤ decode×1 ├─► 10 Hz grid: tiny grayscale frames + mono audio
                     ▼            ▼            ▼
               reel.mp4   reel_vertical   reel_square
                     └──── .hypecut.json · .edl ────┘
+             (or reel.part1.mp4, reel.part2.mp4 … when
+              there is more here than fits in one reel)
 ```
 
 The video is decoded exactly once, into a 96×54 grayscale plane at 10 Hz and
@@ -317,6 +322,71 @@ class ChatSpike(Signal):
 Register it under the `hypecut.signals` entry-point group and it appears in
 `hypecut signals` for everyone who installs your package. Same story for
 refiners. See [docs/EXTENDING.md](docs/EXTENDING.md).
+
+## When there is nothing to cut, you get nothing
+
+Every threshold in HypeCut is relative to the video it is given — a quiet VOD
+and a loud one should both yield reels — which means a percentile always
+selects *something*. Feed in three hours of an idle lobby and older versions
+returned a confident reel of its least-boring moments.
+
+`segments.min_prominence` is the one cross-video check: how far the best
+moment stands above that video's own background, measured per signal in its
+own units. Below the bar, you get no reel and a sentence saying why.
+
+```
+$ hypecut cut afk-stream.mp4
+Nothing to cut: nothing in this video stands out from its own background
+(prominence 2.2, needs 4.0).
+```
+
+`hypecut batch` counts those separately from failures, because a folder of
+recordings normally contains a few with nothing in them. If you disagree with
+the verdict, lower `min_prominence` — or set it to 0 to skip the check.
+
+## A long recording becomes several reels
+
+A three-hour match has more than one reel's worth of highlights in it, and
+truncating to the best twenty clips throws away the second half. Past
+`clips_per_reel` (10) clips or `target_duration` seconds, the cut spills into
+the next part:
+
+```
+3 reels — the cut was too long for one:
+Part 1:  match.part1.mp4  (10 clips)
+Part 2:  match.part2.mp4  (10 clips)
+Part 3:  match.part3.mp4  (4 clips)
+```
+
+Parts are chronological, so the reel still tells the match's story front to
+back, and each carries its own cut list and EDL. There is no cap on how many
+there can be. `max_clips` is now the only setting that discards a highlight
+rather than moving it; it defaults to no cap.
+
+## Replays are not duplicates
+
+The `diversity` refiner spreads clips out by *time*, which is a proxy for
+sameness and a poor one: it penalises a save thirty seconds after a goal and
+lets through the fifth identical spawn-camp kill because they were minutes
+apart.
+
+`similarity` asks the better question — do these two clips *move* the same
+way — and then uses time only to interpret the answer:
+
+| | close together | far apart |
+|---|---|---|
+| **look alike** | the same event again: a replay, another angle. **Kept**, and tagged with a shared `moment` id | the same thing happening twice. The weaker take is demoted |
+| **look different** | untouched | untouched |
+
+That first cell is the whole design. A broadcast shows the goal, the slow
+motion, and the angle from behind the net; a reel that keeps all three is not
+repeating itself, it is edited. Cutting them would be removing the edit.
+
+It compares frame *differences*, not frames. Averaged frames of a
+locked-camera football match are the same green rectangle every time — every
+pair scores above 0.99 and the whole video reads as one repeated moment.
+Motion cancels the background and describes the play. Cost is one pass over
+frames already in memory: no model, no extra decode, no new dependency.
 
 ## Knowing whether it worked
 

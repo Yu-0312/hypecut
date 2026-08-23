@@ -30,12 +30,14 @@ segments:
   post_roll: 2.5
   merge_gap: 3.0
   percentile: 94.0
-  max_clips: 16
+  # No cap: a long recording spills into part 2, part 3 ... rather than
+  # silently losing its second half. `clips_per_reel` sets how big each is.
+  max_clips: 0
   target_duration: 150.0
   snap_window: 2.0        # round transitions and killcams are the cuts here
   min_silence: 0.25       # gunfire leaves only short gaps
 
-refiners: [diversity, pacing]
+refiners: [diversity, pacing, similarity]
 refiner_params:
   pacing:
     ideal: 8.0

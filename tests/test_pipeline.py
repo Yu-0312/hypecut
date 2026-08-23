@@ -72,8 +72,17 @@ def test_run_produces_a_playable_reel(sample_vod, tmp_path):
 
 @requires_ffmpeg
 def test_silent_video_still_works(silent_vod, tmp_path):
-    """A video with no audio must fall back to visual signals, not crash."""
-    cfg = Config().merged({"segments": {"percentile": 80, "target_duration": 8.0}})
+    """A video with no audio must fall back to visual signals, not crash.
+
+    ``min_prominence`` is off here on purpose. The fixture is a test pattern:
+    it moves constantly and uniformly, so nothing in it stands out and the
+    emptiness check is right to refuse it. That is a different question from
+    the one this test asks, which is whether the visual signals carry the run
+    when there is no audio track to lean on.
+    """
+    cfg = Config().merged(
+        {"segments": {"percentile": 80, "target_duration": 8.0, "min_prominence": 0}}
+    )
     plan = analyze(silent_vod, cfg)
     assert plan.segments
     assert all(t.name in {"scene_change", "motion", "roi_activity", "flash"} for t in plan.tracks)
@@ -148,7 +157,9 @@ def test_vertical_reel_renders_at_the_requested_size(sample_vod, tmp_path, mode)
     )
     result = run(sample_vod, out, cfg)
 
-    reel = probe(out)
+    # `result.output`, not `out`: the deliberately tiny 12 s budget here can
+    # spill the cut across several parts, and part 1 is not named `out`.
+    reel = probe(result.output)
     assert (reel.width, reel.height) == (540, 960)
     assert all(s.meta.get("reframe", {}).get("mode") == mode for s in result.plan.segments)
 
@@ -335,3 +346,60 @@ def test_evaluation_separates_the_sports_profile_from_the_default(sports_vod, tm
         f"the sports profile should keep more of the moment "
         f"({sport.coverage:.2f} vs {generic.coverage:.2f})"
     )
+
+
+@requires_ffmpeg
+def test_an_empty_video_yields_no_reel_and_says_so(boring_vod, tmp_path):
+    """The point of `min_prominence`: "nothing here" has to be an answer.
+
+    Every other threshold is relative to the video it is given — `fuse` even
+    min-max rescales the curve to 0-1 — so without this check a percentile
+    always finds something and three hours of an idle lobby comes back as a
+    confident reel of its least-boring moments.
+    """
+    result = run(boring_vod, tmp_path / "nothing.mp4", Config())
+
+    assert result.reels == []
+    assert result.output is None
+    assert not (tmp_path / "nothing.mp4").exists(), "no file should be written"
+    assert "stands out" in result.plan.empty_reason
+    assert result.plan.prominence < result.plan.min_prominence
+
+
+@requires_ffmpeg
+def test_the_same_empty_video_cuts_fine_once_the_check_is_off(boring_vod, tmp_path):
+    """The gate is the only thing stopping it — proof the footage is workable."""
+    cfg = Config().merged({"segments": {"min_prominence": 0, "percentile": 85}})
+    result = run(boring_vod, tmp_path / "anyway.mp4", cfg)
+    assert result.reels, "with the check disabled the old behaviour returns"
+
+
+@requires_ffmpeg
+def test_a_long_cut_is_split_into_watchable_parts(repeat_vod, tmp_path):
+    cfg = Config().merged(
+        {
+            "segments": {
+                "percentile": 85,
+                "min_prominence": 0,
+                "clips_per_reel": 3,
+                "target_duration": 500.0,
+            }
+        }
+    )
+    result = run(repeat_vod, tmp_path / "match.mp4", cfg)
+
+    assert len(result.reels) > 1, "more clips than fit in one reel"
+    assert all(reel.clips <= 3 for reel in result.reels)
+    assert [reel.path.name for reel in result.reels[:2]] == ["match.part1.mp4", "match.part2.mp4"]
+    assert all(reel.path.exists() for reel in result.reels)
+
+    # Each part carries its own cut list, and it has to describe that part.
+    for reel in result.reels:
+        assert reel.sidecar and reel.sidecar.exists()
+        written = json.loads(reel.sidecar.read_text())
+        assert len(written["segments"]) == reel.clips
+
+    # Parts run front to back, so the reel still tells the match's story.
+    ends = [max(s.end for s in group) for group in result.plan.reels()]
+    starts = [min(s.start for s in group) for group in result.plan.reels()]
+    assert all(ends[i] <= starts[i + 1] for i in range(len(ends) - 1))

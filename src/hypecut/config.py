@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, get_type_hints
 
 __all__ = [
+    "describe_profiles",
     "SignalConfig",
     "SegmentConfig",
     "ReframeConfig",
@@ -70,9 +71,30 @@ class SegmentConfig:
     # seconds for sports, where the goal is silent and the roar is not.
     reaction_lag: float = 0.0
     percentile: float = 92.0
-    max_clips: int = 20
+    # 0 means no cap. Beyond `clips_per_reel` clips the cut spills into part 2,
+    # part 3 and so on, so a cap here is a decision to *discard* the weakest
+    # highlights rather than a decision about reel length — which is what
+    # `target_duration` and `clips_per_reel` are for. Set it only when you
+    # genuinely want at most N clips in total, as `shorts.yaml` does.
+    max_clips: int = 0
+    # Per reel, not per run: each part is meant to be watchable on its own.
     target_duration: float | None = 120.0
     min_score: float = 0.0
+
+    # "Is there anything here at all?" — the one cross-video check in the
+    # pipeline. Everything else is relative to the video's own distribution,
+    # so without this a three-hour idle stream still yields a confident reel
+    # of its least-boring moments. Below this, analysis returns no segments
+    # and the caller says so instead of cutting.
+    #
+    # Calibrated on synthetic footage: a static scene with room tone measures
+    # ~2, sparse real content ~8, ordinary content 30+. The default sits well
+    # under the sparse case on purpose — wrongly returning nothing is a worse
+    # failure than wrongly returning a weak reel, so this is the first knob to
+    # lower (or set to 0, which disables the check) if a real video is refused.
+    min_prominence: float = 4.0
+    # How many clips go in one reel before the rest spill into the next one.
+    clips_per_reel: int = 10
 
     # Shot-boundary snapping. A clip edge that lands mid-shot reads as a slice;
     # the same edge moved half a second onto a real cut reads as an edit.
@@ -256,3 +278,25 @@ def _from_dict(cls: type, data: dict[str, Any]) -> Any:
         else:
             kwargs[name] = value
     return cls(**kwargs)
+
+
+def describe_profiles(root: Path) -> list[dict[str, str]]:
+    """Name + one-line purpose for every profile in a directory.
+
+    The summary is the profile's own first comment line. Keeping it there
+    rather than in a table somewhere means it cannot drift from the file it
+    describes, and a contributor adding a profile writes the description
+    without being told to.
+    """
+    out: list[dict[str, str]] = []
+    for path in sorted(root.glob("*.yaml")):
+        summary = ""
+        for line in path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                summary = stripped.lstrip("# ").strip()
+                break
+            if stripped:
+                break
+        out.append({"name": path.stem, "path": str(path), "summary": summary})
+    return out

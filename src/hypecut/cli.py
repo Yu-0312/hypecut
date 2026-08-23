@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 
 from . import __version__
-from .config import Config, load_config
+from .config import Config, describe_profiles, load_config
 from .ffmpeg import FFmpegError, FFmpegNotFound
 from .reframe import MODES as REFRAME_MODES
 
@@ -297,7 +297,8 @@ def _run_batch(args: argparse.Namespace, cfg: Config, report) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     sources = [s for s in sources if out_dir not in s.parents]
 
-    done: list[tuple[Path, Path]] = []
+    done: list[tuple[Path, list[Path]]] = []
+    empty: list[tuple[Path, str]] = []
     skipped: list[Path] = []
     failed: list[tuple[Path, str]] = []
 
@@ -310,7 +311,13 @@ def _run_batch(args: argparse.Namespace, cfg: Config, report) -> int:
             print(f"\n[{index}/{len(sources)}] {source.name}", file=sys.stderr)
         try:
             result = run_one(source, dest, cfg, progress=report)
-            done.append((source, result.output or dest))
+            if not result.reels:
+                # Not a failure. A folder of recordings usually contains a few
+                # that genuinely have nothing in them, and inventing a reel for
+                # those is exactly what the emptiness check exists to prevent.
+                empty.append((source, result.plan.empty_reason))
+                continue
+            done.append((source, [reel.path for reel in result.reels]))
         except KeyboardInterrupt:  # pragma: no cover - user abort
             print("\ninterrupted", file=sys.stderr)
             return 130
@@ -321,36 +328,20 @@ def _run_batch(args: argparse.Namespace, cfg: Config, report) -> int:
             reason = " ".join(str(exc).split())
             failed.append((source, reason[:160]))
 
-    print(f"\n{len(done)} cut, {len(skipped)} skipped, {len(failed)} failed -> {out_dir}")
-    for source, dest in done:
-        print(f"  ok      {source.name} -> {dest.name}")
+    print(
+        f"\n{len(done)} cut, {len(empty)} with nothing in them, "
+        f"{len(skipped)} skipped, {len(failed)} failed -> {out_dir}"
+    )
+    for source, paths in done:
+        names = paths[0].name if len(paths) == 1 else f"{len(paths)} parts, {paths[0].name} ..."
+        print(f"  ok      {source.name} -> {names}")
+    for source, why in empty:
+        print(f"  empty   {source.name}: {why}")
     for source in skipped:
         print(f"  skip    {source.name} (already cut; --overwrite to redo)")
     for source, why in failed:
         print(f"  failed  {source.name}: {why}", file=sys.stderr)
     return 1 if failed else 0
-
-
-def _describe_profiles(root: Path) -> list[dict[str, str]]:
-    """Name + one-line purpose for every profile in a directory.
-
-    The summary is the profile's own first comment line. Keeping it there
-    rather than in a table somewhere means it cannot drift from the file it
-    describes, and a contributor adding a profile writes the description
-    without being told to.
-    """
-    out: list[dict[str, str]] = []
-    for path in sorted(root.glob("*.yaml")):
-        summary = ""
-        for line in path.read_text(encoding="utf-8").splitlines():
-            stripped = line.strip()
-            if stripped.startswith("#"):
-                summary = stripped.lstrip("# ").strip()
-                break
-            if stripped:
-                break
-        out.append({"name": path.stem, "path": str(path), "summary": summary})
-    return out
 
 
 def _run_contact_sheet(args: argparse.Namespace) -> int:
@@ -583,7 +574,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "profiles":
-        found = _describe_profiles(Path(args.dir))
+        found = describe_profiles(Path(args.dir))
         if args.json:
             print(json.dumps(found, indent=2, ensure_ascii=False))
             return 0
@@ -607,7 +598,7 @@ def main(argv: list[str] | None = None) -> int:
         uvicorn.run("hypecut.web.app:app", host=args.host, port=args.port, reload=args.reload)
         return 0
 
-    from .pipeline import analyze, render_plan, render_variants
+    from .pipeline import analyze, render_reels
 
     try:
         if args.command == "contact-sheet":
@@ -644,34 +635,29 @@ def main(argv: list[str] | None = None) -> int:
         )
         plan = analyze(source, cfg, progress=lambda p, m: report(p * 0.6, m))
         if not plan.segments:
-            print(
-                "No highlights found. Try --percentile 85 or a different profile.", file=sys.stderr
-            )
+            print(f"Nothing to cut: {plan.empty_reason}.", file=sys.stderr)
+            print(_no_highlights_hint(plan), file=sys.stderr)
             return 1
-        if cfg.variants:
-            outputs = render_variants(
-                plan, output, cfg, progress=lambda p, m: report(0.6 + p * 0.4, m)
-            )
-            out = outputs["base"]
-            sidecar = out.with_suffix(".hypecut.json")
-            sidecar = sidecar if sidecar.exists() else None
-        else:
-            outputs = {}
-            out, sidecar = render_plan(
-                plan,
-                output,
-                cfg,
-                progress=lambda p, m: report(0.6 + p * 0.4, m),
-                write_sidecar=not args.no_sidecar,
-            )
+
+        reels = render_reels(
+            plan,
+            output,
+            cfg,
+            progress=lambda p, m: report(0.6 + p * 0.4, m),
+            write_sidecar=not args.no_sidecar,
+        )
         _summarise(plan, args.quiet)
         if not args.quiet:
-            print(f"\nReel:    {out}")
-            for name, path in outputs.items():
-                if name != "base":
+            print()
+            if len(reels) > 1:
+                print(f"{len(reels)} reels — the cut was too long for one:")
+            for index, reel in enumerate(reels, start=1):
+                label = f"Part {index}" if len(reels) > 1 else "Reel"
+                print(f"{label + ':':<9}{reel.path}  ({reel.clips} clips)")
+                for name, path in reel.variants.items():
                     print(f"  +{name:<9} {path}")
-            if sidecar:
-                print(f"Cutlist: {sidecar}")
+                if reel.sidecar:
+                    print(f"  cutlist  {reel.sidecar}")
         return 0
 
     except FFmpegNotFound as exc:
@@ -685,11 +671,25 @@ def main(argv: list[str] | None = None) -> int:
         return 130
 
 
+def _no_highlights_hint(plan) -> str:
+    """What to actually try next, which depends on how it came up empty."""
+    if plan.min_prominence and plan.prominence < plan.min_prominence:
+        return (
+            "Every threshold in HypeCut is relative to the video it is given, so this "
+            "is the check that says a video has nothing in it rather than quietly "
+            "cutting its least-boring parts. If you disagree, lower "
+            "segments.min_prominence (or set it to 0 to skip the check)."
+        )
+    return "Try --percentile 85 or a different profile."
+
+
 def _summarise(plan, quiet: bool) -> None:
     if quiet:
         return
+    reels = plan.reels()
+    spread = f" across {len(reels)} reels" if len(reels) > 1 else ""
     print(
-        f"\n{len(plan.segments)} clips, {plan.total_duration:.1f}s reel "
+        f"\n{len(plan.segments)} clips{spread}, {plan.total_duration:.1f}s total "
         f"from {plan.info.duration:.1f}s source "
         f"({plan.total_duration / max(plan.info.duration, 1e-9) * 100:.1f}% kept)"
     )

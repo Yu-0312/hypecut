@@ -45,7 +45,9 @@ segments:
   reaction_lag: 2.5 # the roar peaks about this long after the ball crosses
   merge_gap: 4.0
   percentile: 95.0
-  max_clips: 12
+  # No cap: a long recording spills into part 2, part 3 ... rather than
+  # silently losing its second half. `clips_per_reel` sets how big each is.
+  max_clips: 0
   target_duration: 240.0
   snap_window: 3.0
   snap_to_dissolves: true # replay wipes and stings are gradual transitions
@@ -55,7 +57,7 @@ render:
   crf: 20
   fade: 0.3
 
-refiners: [diversity, pacing]
+refiners: [diversity, pacing, similarity]
 refiner_params:
   pacing:
     ideal: 18.0

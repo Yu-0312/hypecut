@@ -65,6 +65,11 @@ Follow `AGENTS.md` in the HypeCut repo for the full contract. The short form:
   with times you actually found, and say you did.
 - **Explain with signals.** "`roi_activity` spiked — that is the kill feed"
   is checkable; "it looked exciting" is not.
+- **Pass on "nothing here".** If the video has nothing that stands out,
+  HypeCut says so and cuts nothing. Report that instead of forcing a reel out
+  of it by setting `segments.min_prominence: 0`.
+- **Count the files.** A long recording comes back as `reel.part1.mp4`,
+  `reel.part2.mp4` … in time order. Hand over all of them.
 
 ## Things people ask for
 
@@ -78,6 +83,8 @@ Follow `AGENTS.md` in the HypeCut repo for the full contract. The short form:
 | Football / basketball match | `--profile configs/sports-broadcast.yaml` |
 | Phone on the sideline | `--profile configs/sports-field.yaml` |
 | "Is this profile actually better?" | `hypecut label VIDEO`, they mark it, `hypecut eval LABELS -p A -p B` |
+| Nothing came back at all | the video may genuinely be empty — the message gives the measured prominence; `--percentile 85` or a profile first, `segments.min_prominence: 0` last |
+| Shorter parts / longer parts | `segments.clips_per_reel` (default 10), `--target` is per part |
 
 ## Deliver
 

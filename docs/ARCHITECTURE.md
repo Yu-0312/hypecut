@@ -35,6 +35,7 @@ VideoInfo ──► AnalysisContext ──► [SignalTrack] ──► curve ─�
                                                         HighlightPlan
                                                                    │
                                                          render ──►  mp4 + json + edl
+                                                                     (one per reel)
 ```
 
 Each arrow is a module; each box is a type in `types.py`. Nothing in the chain
@@ -140,6 +141,9 @@ it never touches the full video, an expensive model is affordable here.
 * `diversity` — penalises clips clustered in one stretch, so a single chaotic
   teamfight can't eat the whole reel.
 * `pacing` — a soft bell around a target clip length.
+* `similarity` — penalises clips that *move* like an earlier clip from a
+  different moment, while keeping replays and alternate angles. See
+  [De-duplication](#de-duplication-and-why-a-replay-is-not-a-duplicate).
 * `clip_rerank` — CLIP similarity of each candidate's peak frame against
   positive prompts ("an intense firefight") minus negatives ("a menu screen").
   This is the step that separates *loud* from *loud and actually a fight*.
@@ -152,10 +156,9 @@ job is not optional.
 
 ## Selection
 
-Score-ordered greedy fill against two budgets (clip count and total duration),
-then re-sorted into timeline order. Reels should still tell the match's story
-front to back — chronology is free narrative structure and viewers notice when
-it's missing.
+Kept in timeline order — chronology is free narrative structure and viewers
+notice when it is missing. Discarding and laying out are separate concerns;
+see [One cut, several reels](#one-cut-several-reels) below.
 
 One deliberate exception: if the first clip alone busts the duration budget it
 is admitted anyway. A too-tight budget should produce a short reel, never an
@@ -368,6 +371,87 @@ Alongside the mp4, every run writes:
   moments; the user may well want to finish the edit themselves, and a tool
   that refuses to hand over its work is a tool people stop trusting.
 * MP4 chapters — one marker per clip, with its source timecode.
+
+## Is there anything here at all?
+
+Every threshold above this line is relative. `fuse` min-max rescales the
+curve to 0-1 and `build_candidates` thresholds at a percentile of that, so by
+construction some fraction of *every* video clears the bar. That design is
+right — a quiet VOD and a loud one should both yield reels — but it cannot
+tell a quiet video from an empty one, and three hours of an idle lobby came
+back as a confident reel of its least-boring moments.
+
+`fusion.prominence` is the one cross-video measurement in the pipeline. Per
+signal, in that signal's own raw units before any normalisation: the distance
+from its median to its smoothed peak, in MAD-scale units. Being a ratio it
+carries no units and needs no calibration corpus. The peak is taken over the
+*smoothed* track so a single corrupt frame cannot pass for a highlight, and
+the strongest signal wins rather than the average — one detector finding
+something is enough, and a goal does not stop being a goal because the other
+seven signals slept through it.
+
+A ratio alone is not enough, and the failure is the same one that produced
+phantom shot boundaries in v0.4. In footage that never changes,
+`scene_change` has a MAD near zero, so codec flicker of five hundredths of a
+luma level divides out to "nine times the usual" and is indistinguishable
+from a cut. Each signal therefore declares a `noise_floor` in its own units —
+1.5 luma levels for frame difference, 3 dB for loudness — and a track whose
+peak does not rise that far above its median gets no vote. Signals with no
+physically meaningful unit declare no floor and are judged on the ratio.
+
+Measured on synthetic footage: a static scene with room tone scores ~2, a
+locked camera watching one small object ~8, ordinary content 30 and up. The
+default bar sits at 4, deliberately nearer the empty end, because wrongly
+refusing a real video is a worse failure than wrongly cutting a weak one.
+
+## One cut, several reels
+
+`select` does two separable jobs and keeping them separate is the point.
+*Discarding* is by score and happens only if `max_clips` says so — it
+defaults to 0, meaning nothing worth keeping is thrown away. *Laying out* is
+by time: clips are walked front to back and spill into a new reel whenever
+the current one is full, at `clips_per_reel` clips or `target_duration`
+seconds, whichever comes first.
+
+So a three-hour match becomes part 1, part 2, part 3 in chronological order
+rather than one truncated reel missing its second half. The duration budget
+is per reel because each part has to be watchable on its own.
+
+Clips carry their reel number in `meta`, and the plan stays one flat list —
+snapping, trimming and reframing have no opinion about reels and should not
+have to grow one. `HighlightPlan.reels()` regroups at render time, where
+`render_reels` gives each part its own file, sidecar and EDL. A cut list that
+does not match its video is worse than no cut list.
+
+## De-duplication, and why a replay is not a duplicate
+
+`diversity` penalises clips by their distance in *time*, which is a proxy for
+sameness and a poor one: a save thirty seconds after a goal is punished, and
+the fifth identical spawn-camp kill is not.
+
+`refine/similarity.py` compares clips directly, and then uses time only to
+interpret the comparison. Similar and close together is one event being shown
+again — a replay, another angle — which is kept and tagged with a shared
+`moment` id. Similar and far apart is a different occurrence that happens to
+look identical, and only that is penalised. A broadcast reel containing the
+goal, the slow motion and the view from behind the net is not repeating
+itself; that is the edit.
+
+The descriptor is a 6x8 pooled map of *frame differences*, zero-meaned and
+normalised. Appearance was tried first and does not work: averaged frames of
+a locked-camera match are the same green rectangle every time, every pair
+scores above 0.99, and the whole video reads as one repeated moment. Motion
+cancels the static background exactly and describes where the play happened.
+A clip whose mean motion falls below 0.1 luma levels declines to be compared
+at all, because a normalised noise vector correlates with anything.
+
+Grouping completes before any penalty is applied. A goal, its replay and a
+third angle can chain end to end past the window, and penalising as the pass
+went would demote the third angle for matching the goal it replays.
+
+Refiners reach the frames through `self.ctx`, set by the pipeline. An
+attribute rather than a new `refine()` argument, so every refiner written
+against the two-argument signature keeps working.
 
 ## Evaluation
 

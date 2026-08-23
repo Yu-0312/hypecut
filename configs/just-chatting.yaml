@@ -21,7 +21,9 @@ segments:
   post_roll: 4.0
   merge_gap: 6.0
   percentile: 90.0
-  max_clips: 10
+  # No cap: a long recording spills into part 2, part 3 ... rather than
+  # silently losing its second half. `clips_per_reel` sets how big each is.
+  max_clips: 0
   target_duration: 240.0
   snap_to_shots: false    # a single locked-off camera has no cuts to snap to
   trim_to_silence: true   # ...so the pauses between sentences are all we have
@@ -29,6 +31,9 @@ segments:
   silence_window: 3.0     # long pre-roll here, so let the edge travel to match
   silence_pad: 0.20
 
+# `similarity` is deliberately absent: one person at one desk means every
+# clip has the same motion signature, so it would read the whole stream as
+# a single repeated moment. It needs footage whose shots actually differ.
 refiners: [diversity, pacing, speech_keywords]
 refiner_params:
   pacing:

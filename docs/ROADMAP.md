@@ -61,7 +61,22 @@ interesting it is to build. Items marked **help wanted** are good entry points.
       separately as coverage, because "missed it" and "framed it badly" need
       different fixes.
 
-## v0.7 — cut points, continued
+## Shipped in v0.8
+
+- [x] **An empty video gets an empty answer.** `segments.min_prominence`
+      measures how far the best moment stands above the video's own
+      background, so an idle stream is no longer cut into a reel of its
+      least-boring parts.
+- [x] **Reels split instead of truncating.** Past `clips_per_reel` clips a
+      long cut becomes part 1, part 2, part 3, in chronological order, each
+      with its own cut list. `max_clips` now defaults to no cap.
+- [x] **De-duplication by content, not by clock.** The `similarity` refiner
+      compares where clips *move*, and treats "similar and close together" as
+      a replay to keep rather than a duplicate to drop.
+- [x] **A web UI an ordinary person can use.** Two plain questions, one
+      button, everything else folded away.
+
+## v0.9 — cut points, continued
 
 - [ ] **Auto-locate the facecam.** `react_to_facecam` needs the box to be
       right, which is the one thing a user has to supply by hand. A one-off
@@ -73,7 +88,7 @@ interesting it is to build. Items marked **help wanted** are good entry points.
       slow speaker with no gaps still gets cut mid-word. ASR word timings
       (behind the existing `[asr]` extra) would fix it. **help wanted**
 
-## v0.8 — reach
+## v1.0 — reach
 
 - [ ] **Twitch/YouTube VOD URLs as input**, via yt-dlp as an optional extra.
 - [ ] **Chat-log signal.** Twitch chat message rate is close to a free
@@ -83,7 +98,7 @@ interesting it is to build. Items marked **help wanted** are good entry points.
 - [ ] **Parallel batch workers.** One file at a time is right on a laptop and
       wasteful on a workstation.
 
-## v0.9 — deployments with more than one user
+## v1.1 — deployments with more than one user
 
 - [ ] Pluggable queue backend (RQ or arq) behind the existing `JobStore`
       interface; the in-process worker stays the default.
@@ -114,10 +129,15 @@ jarring. Options: a short crossfade (current), duck-to-silence between clips,
 or a music bed under the whole reel. The last one is the most "produced" and
 also the most opinionated — is that HypeCut's job?
 
-**Should scores be comparable across videos?** Today scores are
-percentile-relative, so 0.9 in a quiet VOD is not 0.9 in a loud one. An
-absolute scale would let users set one threshold forever, but it would need
-calibration data we don't have.
+**Should scores be comparable across videos?** Half-answered in v0.8.
+`min_prominence` is genuinely cross-video — it is a ratio, so it needs no
+calibration — but it only answers the binary question, *is there anything
+here*. Clip scores are still percentile-relative, so 0.9 in a quiet VOD is
+not 0.9 in a loud one, and "only give me clips above 0.8, forever" still does
+not work. A real absolute scale needs calibration data, and `hypecut label`
+is now the mechanism that could collect it: enough answer keys would let a
+mapping be fitted from raw signal values to "a human marked this". Nobody has
+gathered them yet, and it is not clear how many it would take.
 
 **Where does the line sit with LLM/VLM APIs?** A hosted VLM would likely beat
 CLIP at judging candidates, but it breaks the "works fully offline, sends

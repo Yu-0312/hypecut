@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from . import builtin as _builtin  # noqa: F401
+from . import similarity as _similarity  # noqa: F401
 from .base import Refiner, available_refiners, build_refiners, get_refiner, register  # noqa: F401
 
 _PLUGINS_LOADED = False

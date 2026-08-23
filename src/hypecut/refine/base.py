@@ -17,7 +17,7 @@ import abc
 from collections.abc import Callable
 from typing import Any
 
-from ..types import Candidate, VideoInfo
+from ..types import AnalysisContext, Candidate, VideoInfo
 
 __all__ = ["Refiner", "register", "get_refiner", "build_refiners", "available_refiners"]
 
@@ -29,6 +29,14 @@ class Refiner(abc.ABC):
 
     name: str = "refiner"
     description: str = ""
+
+    #: The decoded frames and audio, set by the pipeline before ``refine``
+    #: runs. Optional on purpose: it is an attribute rather than an argument
+    #: so that every refiner written against the older two-argument signature
+    #: keeps working untouched. It is ``None`` when a refiner is driven
+    #: directly rather than through :func:`~hypecut.pipeline.analyze`, so a
+    #: refiner that uses it must handle that and degrade to doing nothing.
+    ctx: AnalysisContext | None = None
 
     def __init__(self, **params: Any) -> None:
         self.params = params

@@ -14,8 +14,6 @@
     --muted: #8e98ad;
     --accent: #ff5b4a;
     --accent-2: #4ad9c0;
-    --ok: #55d187;
-    --warn: #ffc857;
     --radius: 12px;
     --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
   }
@@ -25,7 +23,7 @@
     font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", sans-serif;
   }
   header {
-    padding: 28px 24px 16px; max-width: 1080px; margin: 0 auto;
+    padding: 28px 24px 16px; max-width: 900px; margin: 0 auto;
     display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
   }
   h1 { font-size: 24px; margin: 0; letter-spacing: -0.02em; }
@@ -34,60 +32,71 @@
     font: 600 11px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em;
     color: var(--muted); border: 1px solid var(--line); padding: 5px 8px; border-radius: 999px;
   }
-  main { max-width: 1080px; margin: 0 auto; padding: 0 24px 80px; }
-  .grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 20px; align-items: start; }
-  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  main { max-width: 900px; margin: 0 auto; padding: 0 24px 80px; }
   .card {
     background: var(--panel); border: 1px solid var(--line);
-    border-radius: var(--radius); padding: 20px;
+    border-radius: var(--radius); padding: 22px; margin-bottom: 18px;
   }
-  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em;
-    color: var(--muted); margin: 0 0 14px; font-weight: 600; }
   #drop {
     border: 1.5px dashed var(--line); border-radius: var(--radius);
-    padding: 34px 20px; text-align: center; cursor: pointer;
+    padding: 46px 20px; text-align: center; cursor: pointer;
     transition: border-color .15s, background .15s;
   }
   #drop.hot { border-color: var(--accent); background: #ff5b4a10; }
-  #drop strong { display: block; font-size: 16px; margin-bottom: 6px; }
+  #drop strong { display: block; font-size: 18px; margin-bottom: 6px; }
   #drop small { color: var(--muted); }
   .file { margin-top: 12px; font: 13px var(--mono); color: var(--accent-2); word-break: break-all; }
+  .ask { font-size: 14px; color: var(--text); margin: 22px 0 8px; font-weight: 600; }
+  .hint { font-size: 13px; color: var(--muted); margin: -4px 0 8px; }
   label { display: block; font-size: 12px; color: var(--muted); margin: 14px 0 6px; }
   input[type=range] { width: 100%; accent-color: var(--accent); }
   .row { display: flex; gap: 14px; }
   .row > div { flex: 1; }
   .val { font: 600 13px var(--mono); color: var(--text); float: right; }
-  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; }
   .chip {
-    border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px;
-    font-size: 13px; cursor: pointer; user-select: none; background: var(--panel-2);
+    border: 1px solid var(--line); border-radius: 999px; padding: 8px 14px;
+    font-size: 14px; cursor: pointer; user-select: none; background: var(--panel-2);
   }
   .chip.on { border-color: var(--accent-2); color: var(--accent-2); }
   button {
-    margin-top: 20px; width: 100%; padding: 12px 16px; border: 0; border-radius: 10px;
-    background: var(--accent); color: #fff; font-size: 15px; font-weight: 600; cursor: pointer;
+    margin-top: 24px; width: 100%; padding: 15px 16px; border: 0; border-radius: 10px;
+    background: var(--accent); color: #fff; font-size: 16px; font-weight: 600; cursor: pointer;
   }
   button:disabled { opacity: .45; cursor: not-allowed; }
+  details { margin-top: 22px; border-top: 1px solid var(--line); padding-top: 14px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 13px; user-select: none; }
+  summary::marker { color: var(--muted); }
   .bar { height: 8px; background: var(--panel-2); border-radius: 999px; overflow: hidden; }
   .bar > i { display: block; height: 100%; width: 0;
     background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .3s; }
-  .status { display: flex; justify-content: space-between; font-size: 13px;
+  .status { display: flex; justify-content: space-between; font-size: 14px;
     color: var(--muted); margin-bottom: 8px; }
+  .part { margin-top: 22px; }
+  .part h3 { font-size: 14px; margin: 0 0 4px; }
+  .part .sub { font-size: 13px; color: var(--muted); }
+  .nothing {
+    border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 20px; margin-top: 16px; font-size: 15px;
+  }
+  .nothing p { margin: 0 0 8px; }
+  .nothing small { color: var(--muted); }
+  video { width: 100%; max-height: 52vh; object-fit: contain;
+    border-radius: 10px; margin-top: 10px; background: #000; }
+  a.dl { display: inline-block; margin-top: 10px; margin-right: 14px;
+    color: var(--accent-2); font-size: 14px; }
+  .err { color: var(--accent); font-size: 14px; white-space: pre-wrap; margin-top: 12px; }
   .clip {
     display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center;
-    padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14px;
+    padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 14px;
   }
   .clip:last-child { border-bottom: 0; }
   .clip .idx { font: 600 12px var(--mono); color: var(--muted); width: 22px; }
   .clip .why { font-size: 12px; color: var(--muted); }
   .clip .sc { font: 600 12px var(--mono); color: var(--accent-2); }
   .empty { color: var(--muted); font-size: 14px; }
-  video { width: 100%; max-height: 58vh; object-fit: contain;
-    border-radius: 10px; margin-top: 12px; background: #000; }
-  a.dl { display: inline-block; margin-top: 12px; color: var(--accent-2); font-size: 14px; }
-  .err { color: var(--accent); font-size: 14px; white-space: pre-wrap; }
-  canvas { width: 100%; height: 64px; display: block; margin-top: 10px; }
-  footer { max-width: 1080px; margin: 0 auto; padding: 0 24px 40px; color: var(--muted); font-size: 13px; }
+  footer { max-width: 900px; margin: 0 auto; padding: 0 24px 40px;
+    color: var(--muted); font-size: 13px; }
   code { font: 12px var(--mono); background: var(--panel-2); padding: 2px 6px; border-radius: 5px; }
 </style>
 </head>
@@ -99,24 +108,40 @@
 </header>
 
 <main>
-  <div class="grid">
-    <section class="card">
-      <h2>1 · Source</h2>
-      <div id="drop">
-        <strong>Drop a VOD here</strong>
-        <small>or click to choose — mp4, mkv, mov, webm, ts</small>
-      </div>
-      <div class="file" id="fname"></div>
-      <input id="picker" type="file" accept="video/*" hidden />
+  <section class="card">
+    <div id="drop">
+      <strong>Drop a video here</strong>
+      <small>or click to choose — mp4, mkv, mov, webm, ts</small>
+    </div>
+    <div class="file" id="fname"></div>
+    <input id="picker" type="file" accept="video/*" hidden />
 
-      <h2 style="margin-top:24px">2 · Shape of the reel</h2>
-      <label>Target length <span class="val" id="v-target">120s</span></label>
+    <div class="ask">What kind of video is it?</div>
+    <div class="hint">Only changes what counts as exciting. Skip it if you are not sure.</div>
+    <div class="chips" id="profiles">
+      <span class="chip on" data-profile="">Work it out for me</span>
+    </div>
+
+    <div class="ask">What shape do you want?</div>
+    <div class="chips" id="shape">
+      <span class="chip on" data-shape="wide">Same as the original</span>
+      <span class="chip" data-shape="tall">Tall, for phones</span>
+      <span class="chip" data-shape="both">Both</span>
+    </div>
+
+    <button id="go" disabled>Make the highlights</button>
+    <div class="err" id="err"></div>
+
+    <details>
+      <summary>Advanced — none of this is required</summary>
+
+      <label>Length of each reel <span class="val" id="v-target">120s</span></label>
       <input type="range" id="target" min="30" max="600" step="15" value="120" />
 
       <div class="row">
         <div>
-          <label>Max clips <span class="val" id="v-clips">20</span></label>
-          <input type="range" id="clips" min="3" max="40" step="1" value="20" />
+          <label>Clips per reel <span class="val" id="v-per">10</span></label>
+          <input type="range" id="per" min="3" max="20" step="1" value="10" />
         </div>
         <div>
           <label>Sensitivity <span class="val" id="v-pct">92</span></label>
@@ -126,91 +151,86 @@
 
       <div class="row">
         <div>
-          <label>Min clip <span class="val" id="v-min">4s</span></label>
+          <label>Shortest clip <span class="val" id="v-min">4s</span></label>
           <input type="range" id="minlen" min="2" max="15" step="1" value="4" />
         </div>
         <div>
-          <label>Max clip <span class="val" id="v-max">20s</span></label>
+          <label>Longest clip <span class="val" id="v-max">20s</span></label>
           <input type="range" id="maxlen" min="6" max="60" step="2" value="20" />
         </div>
       </div>
 
-      <label>Refiners</label>
+      <label>Detectors</label>
       <div class="chips" id="refiners"></div>
 
-      <h2 style="margin-top:24px">3 · Framing</h2>
-      <label>Aspect</label>
-      <div class="chips" id="reframe">
-        <span class="chip on" data-mode="off">16:9 original</span>
-        <span class="chip" data-mode="crop" title="Crop to 9:16 centred on the action">9:16 crop</span>
-        <span class="chip" data-mode="stack" title="Facecam on top, gameplay below">9:16 stack</span>
-        <span class="chip" data-mode="blur_pad" title="Whole frame over a blurred backdrop">9:16 blurred</span>
-      </div>
-      <div class="chips" style="margin-top:10px">
-        <span class="chip" id="track" title="Let the crop pan to follow the action">pan to follow</span>
-        <span class="chip" id="react" title="Pull the crop toward the facecam when it is busy">react to facecam</span>
-      </div>
-      <div class="chips" style="margin-top:10px">
+      <label>Edge placement</label>
+      <div class="chips">
         <span class="chip on" id="snap" title="Move clip edges onto nearby shot boundaries">snap to cuts</span>
         <span class="chip on" id="trim" title="Move un-snapped edges into nearby pauses">trim to pauses</span>
+        <span class="chip" id="track" title="Let a tall crop pan to follow the action">pan to follow</span>
+        <span class="chip" id="react" title="Pull a tall crop toward the facecam when it is busy">react to facecam</span>
       </div>
-      <label>Also render (same analysis, extra encode)</label>
-      <div class="chips" id="also"></div>
+    </details>
+  </section>
 
-      <button id="go" disabled>Find the highlights</button>
-      <div class="err" id="err"></div>
-    </section>
-
-    <section class="card">
-      <h2>4 · Result</h2>
-      <div class="status"><span id="msg">waiting for a file</span><span id="pct-txt">0%</span></div>
-      <div class="bar"><i id="fill"></i></div>
-      <canvas id="curve" width="600" height="64"></canvas>
-      <div id="player"></div>
-      <div id="clips" class="empty" style="margin-top:14px">No cut list yet.</div>
-    </section>
-  </div>
+  <section class="card" id="result">
+    <div class="status"><span id="msg">waiting for a video</span><span id="pct-txt">0%</span></div>
+    <div class="bar"><i id="fill"></i></div>
+    <div id="parts"></div>
+    <details id="details-wrap" style="display:none">
+      <summary>What it picked, and why</summary>
+      <div id="clips" class="empty">No cut list yet.</div>
+    </details>
+  </section>
 </main>
 
 <footer>
-  Self-hosted. Nothing leaves this machine. CLI equivalent:
-  <code>hypecut cut vod.mp4 -o reel.mp4 --target 120 --vertical</code>
+  Self-hosted. Nothing leaves this machine. The same thing from a terminal:
+  <code>hypecut cut video.mp4 -o reel.mp4</code>
 </footer>
 
 <script>
 const $ = (id) => document.getElementById(id);
-let file = null, poll = null, chosenRefiners = new Set(["diversity", "pacing"]);
-let reframeMode = "off";
-const alsoWanted = new Set();
+let file = null, poll = null;
+let chosenRefiners = new Set(["diversity", "pacing", "similarity"]);
+let profile = "", shape = "wide";
 
-const sliders = [
-  ["target", "v-target", (v) => v + "s"],
-  ["clips", "v-clips", (v) => v],
-  ["pct", "v-pct", (v) => v],
-  ["minlen", "v-min", (v) => v + "s"],
-  ["maxlen", "v-max", (v) => v + "s"],
-];
-sliders.forEach(([id, out, fmt]) => {
-  const el = $(id);
-  el.addEventListener("input", () => ($(out).textContent = fmt(el.value)));
+[["target", "v-target", (v) => v + "s"],
+ ["per", "v-per", (v) => v],
+ ["pct", "v-pct", (v) => v],
+ ["minlen", "v-min", (v) => v + "s"],
+ ["maxlen", "v-max", (v) => v + "s"]].forEach(([id, out, fmt]) => {
+  $(id).addEventListener("input", () => ($(out).textContent = fmt($(id).value)));
 });
+
+// Chip groups where exactly one is chosen.
+function pickOne(container, onPick) {
+  container.querySelectorAll(".chip").forEach((chip) => {
+    chip.onclick = () => {
+      container.querySelectorAll(".chip").forEach((c) => c.classList.remove("on"));
+      chip.classList.add("on");
+      onPick(chip);
+    };
+  });
+}
 
 fetch("/api/meta").then((r) => r.json()).then((m) => {
   $("ver").textContent = "v" + m.version;
-  const alsoBox = $("also");
-  (m.variants || []).forEach((name) => {
+
+  const box = $("profiles");
+  (m.profiles || []).forEach((p) => {
+    if (p.name === "default") return;  // that is what "work it out for me" is
     const chip = document.createElement("span");
     chip.className = "chip";
-    chip.textContent = name;
-    chip.onclick = () => {
-      alsoWanted.has(name) ? alsoWanted.delete(name) : alsoWanted.add(name);
-      chip.classList.toggle("on");
-    };
-    alsoBox.appendChild(chip);
+    chip.textContent = p.name.replace(/-/g, " ");
+    chip.title = p.summary || "";
+    chip.dataset.profile = p.path;
+    box.appendChild(chip);
   });
+  pickOne(box, (chip) => (profile = chip.dataset.profile));
 
-  const box = $("refiners");
-  Object.entries(m.refiners).forEach(([name, desc]) => {
+  const refBox = $("refiners");
+  Object.entries(m.refiners || {}).forEach(([name, desc]) => {
     const chip = document.createElement("span");
     chip.className = "chip" + (chosenRefiners.has(name) ? " on" : "");
     chip.textContent = name;
@@ -219,20 +239,11 @@ fetch("/api/meta").then((r) => r.json()).then((m) => {
       chosenRefiners.has(name) ? chosenRefiners.delete(name) : chosenRefiners.add(name);
       chip.classList.toggle("on");
     };
-    box.appendChild(chip);
+    refBox.appendChild(chip);
   });
 }).catch(() => {});
 
-document.querySelectorAll("#reframe .chip").forEach((chip) => {
-  chip.onclick = () => {
-    document.querySelectorAll("#reframe .chip").forEach((c) => c.classList.remove("on"));
-    chip.classList.add("on");
-    reframeMode = chip.dataset.mode;
-    const usable = reframeMode === "crop" ? "1" : "0.35";
-    ["track", "react"].forEach((id) => ($(id).style.opacity = usable));
-  };
-});
-["track", "react"].forEach((id) => ($(id).style.opacity = "0.35"));
+pickOne($("shape"), (chip) => (shape = chip.dataset.shape));
 ["track", "react", "snap", "trim"].forEach((id) => {
   $(id).onclick = () => $(id).classList.toggle("on");
 });
@@ -251,31 +262,32 @@ function setFile(f) {
   file = f;
   $("fname").textContent = `${f.name} · ${(f.size / 1048576).toFixed(1)} MB`;
   $("go").disabled = false;
-  $("msg").textContent = "ready";
+  $("msg").textContent = "ready when you are";
 }
 
 $("go").onclick = async () => {
   if (!file) return;
   $("go").disabled = true;
   $("err").textContent = "";
-  $("clips").className = "empty";
-  $("clips").textContent = "analysing…";
-  $("player").innerHTML = "";
+  $("parts").innerHTML = "";
+  $("details-wrap").style.display = "none";
 
   const fd = new FormData();
   fd.append("file", file);
+  fd.append("profile", profile);
   fd.append("target_duration", $("target").value);
-  fd.append("max_clips", $("clips").value);
+  fd.append("clips_per_reel", $("per").value);
   fd.append("percentile", $("pct").value);
   fd.append("min_duration", $("minlen").value);
   fd.append("max_duration", $("maxlen").value);
   fd.append("refiners", [...chosenRefiners].join(","));
-  fd.append("reframe", reframeMode);
+  // "Tall" renders vertical directly; "both" keeps the original and adds one.
+  fd.append("reframe", shape === "tall" ? "crop" : "off");
+  fd.append("also", shape === "both" ? "vertical" : "");
   fd.append("reframe_track", $("track").classList.contains("on"));
   fd.append("snap_to_shots", $("snap").classList.contains("on"));
   fd.append("trim_to_silence", $("trim").classList.contains("on"));
   fd.append("react_to_facecam", $("react").classList.contains("on"));
-  fd.append("also", [...alsoWanted].join(","));
 
   try {
     const res = await fetch("/api/jobs", { method: "POST", body: fd });
@@ -301,13 +313,7 @@ function watch(id) {
     if (job.status === "done") {
       clearInterval(poll);
       $("go").disabled = false;
-      $("player").innerHTML =
-        `<video controls src="/api/jobs/${id}/reel"></video>` +
-        `<a class="dl" href="/api/jobs/${id}/reel" download>Download reel</a> · ` +
-        `<a class="dl" href="/api/jobs/${id}/plan" target="_blank">cut list JSON</a>` +
-        (job.variants || [])
-          .map((v) => ` · <a class="dl" href="/api/jobs/${id}/reel/${v}" download>${v}</a>`)
-          .join("");
+      job.parts ? showReels(id, job) : showNothing(job);
     }
     if (job.status === "failed") {
       clearInterval(poll);
@@ -317,11 +323,46 @@ function watch(id) {
   }, 900);
 }
 
+function showReels(id, job) {
+  const many = job.parts > 1;
+  const blocks = [];
+  if (many) {
+    blocks.push(`<p class="sub" style="margin-top:18px">There was more here than fits in one
+      reel, so it is split into ${job.parts} parts, in order.</p>`);
+  }
+  for (let i = 1; i <= job.parts; i++) {
+    // Part 1 is also served at /reel, so a single reel keeps the simple link.
+    const src = many ? `/api/jobs/${id}/part/${i}` : `/api/jobs/${id}/reel`;
+    const variants = (job.variants || [])
+      .map((v) => `<a class="dl" href="/api/jobs/${id}/reel/${v}" download>${v} version</a>`)
+      .join("");
+    blocks.push(`<div class="part">
+      ${many ? `<h3>Part ${i} of ${job.parts}</h3>` : ""}
+      <video controls src="${src}"></video>
+      <a class="dl" href="${src}" download>Download${many ? ` part ${i}` : ""}</a>
+      ${i === 1 ? variants : ""}
+    </div>`);
+  }
+  $("parts").innerHTML = blocks.join("");
+  $("details-wrap").style.display = "";
+}
+
+function showNothing(job) {
+  // Not an error, and it must not look like one. A quiet recording is a
+  // perfectly ordinary thing to upload.
+  $("parts").innerHTML = `<div class="nothing">
+    <p><strong>No highlights in this one.</strong></p>
+    <p class="sub">${job.message || "nothing stood out"}</p>
+    <small>If you know there is something in there, open Advanced and raise the
+    sensitivity — or pick the kind of video, which changes what counts.</small>
+  </div>`;
+}
+
 function renderClips(plan) {
   const box = $("clips");
   if (!plan.segments || !plan.segments.length) {
     box.className = "empty";
-    box.textContent = "Nothing scored above the threshold — try a lower sensitivity.";
+    box.textContent = "Nothing cleared the threshold.";
     return;
   }
   box.className = "";
@@ -331,8 +372,10 @@ function renderClips(plan) {
       .map(([k, v]) => `${k} ${v.toFixed(2)}`).join(" · ") || "—";
     const meta = s.meta || {};
     const tags = [];
+    if (meta.reel) tags.push("part " + meta.reel);
     if (meta.snapped) tags.push("snapped to cut");
     if (meta.trimmed) tags.push("trimmed to pause");
+    if (meta.repeat_penalty) tags.push("looks like an earlier moment");
     if (meta.reframe && meta.reframe.mode !== "off") {
       tags.push(meta.reframe.mode + (meta.reframe.keyframes ? " · pan" : ""));
     }
@@ -344,24 +387,6 @@ function renderClips(plan) {
       <span class="sc">${s.score.toFixed(3)}</span>
     </div>`;
   }).join("");
-  drawCurve(plan);
-}
-
-function drawCurve(plan) {
-  const c = $("curve"), ctx = c.getContext("2d");
-  const w = (c.width = c.clientWidth * 2), h = (c.height = 128);
-  ctx.clearRect(0, 0, w, h);
-  const dur = plan.source_duration || 1;
-  ctx.fillStyle = "#1b202c";
-  ctx.fillRect(0, h - 6, w, 6);
-  (plan.segments || []).forEach((s) => {
-    const x0 = (s.start / dur) * w, x1 = (s.end / dur) * w;
-    ctx.fillStyle = "#ff5b4a";
-    ctx.fillRect(x0, h - 6, Math.max(2, x1 - x0), 6);
-    ctx.fillStyle = "#4ad9c0";
-    const bh = Math.max(4, s.score * (h - 16));
-    ctx.fillRect(x0, h - 6 - bh, Math.max(2, x1 - x0), bh);
-  });
 }
 
 function hhmmss(t) {

@@ -27,11 +27,13 @@ segments:
   post_roll: 4.0
   merge_gap: 5.0
   percentile: 93.0
-  max_clips: 12
+  # No cap: a long recording spills into part 2, part 3 ... rather than
+  # silently losing its second half. `clips_per_reel` sets how big each is.
+  max_clips: 0
   target_duration: 180.0
   snap_window: 4.0        # camera jumps to the fight; that jump is the cut
 
-refiners: [diversity, pacing]
+refiners: [diversity, pacing, similarity]
 refiner_params:
   pacing:
     ideal: 15.0

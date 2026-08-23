@@ -43,6 +43,10 @@ class Job:
     started_at: float | None = None
     finished_at: float | None = None
     output: str | None = None
+    # Every reel this job produced, in order. A long video with many
+    # highlights makes more than one; `output` is the first of them, and both
+    # are empty when the video had nothing in it.
+    parts: list[str] = field(default_factory=list)
     variants: dict[str, str] = field(default_factory=dict)
     plan: dict[str, Any] | None = None
     error: str | None = None
@@ -54,6 +58,8 @@ class Job:
         # Never leak server-side paths to the browser.
         data.pop("source", None)
         data["output"] = bool(self.output)
+        # A count, not paths. The browser fetches part N by index.
+        data["parts"] = len(self.parts)
         # Names only — the browser fetches each by name, never by path.
         data["variants"] = sorted(self.variants)
         return data
@@ -138,7 +144,7 @@ class JobStore:
 
     def _process(self, job: Job) -> None:
         from .config import load_config
-        from .pipeline import analyze, render_plan
+        from .pipeline import analyze
 
         job.status = JobStatus.RUNNING
         job.started_at = time.time()
@@ -156,35 +162,38 @@ class JobStore:
 
             plan = analyze(job.source, cfg, progress=lambda p, m: progress(p * 0.55, m))
             job.plan = plan.to_dict()
+
+            # An empty result is a finished job, not a failed one. Showing a
+            # red error for "this video has nothing in it" tells the user
+            # something is broken when the honest answer is that their footage
+            # is quiet, and the difference matters to someone who is not going
+            # to read a stack trace.
             if not plan.segments:
-                raise RuntimeError(
-                    "No highlights found. Lower the sensitivity percentile and retry."
-                )
+                job.status = JobStatus.DONE
+                job.progress = 1.0
+                job.message = plan.empty_reason
+                return
 
-            dest = self.outputs / f"{job.id}.mp4"
-            if cfg.variants:
-                from .pipeline import render_variants
+            from .pipeline import render_reels
 
-                rendered = render_variants(
-                    plan, dest, cfg, progress=lambda p, m: progress(0.55 + p * 0.45, m)
-                )
-                out = rendered["base"]
-                job.variants = {k: str(v) for k, v in rendered.items() if k != "base"}
-                sidecar = out.with_suffix(".hypecut.json")
-                sidecar = sidecar if sidecar.exists() else None
-            else:
-                out, sidecar = render_plan(
-                    plan, dest, cfg, progress=lambda p, m: progress(0.55 + p * 0.45, m)
-                )
-            job.output = str(out)
+            reels = render_reels(
+                plan,
+                self.outputs / f"{job.id}.mp4",
+                cfg,
+                progress=lambda p, m: progress(0.55 + p * 0.45, m),
+            )
+            job.parts = [str(reel.path) for reel in reels]
+            job.output = job.parts[0]
+            job.variants = {k: str(v) for k, v in reels[0].variants.items()}
             job.plan = plan.to_dict()
-            if sidecar:
-                Path(sidecar).write_text(
-                    json.dumps(job.plan, indent=2, ensure_ascii=False), encoding="utf-8"
-                )
+            for reel in reels:
+                if reel.sidecar:
+                    Path(reel.sidecar).write_text(
+                        json.dumps(job.plan, indent=2, ensure_ascii=False), encoding="utf-8"
+                    )
             job.status = JobStatus.DONE
             job.progress = 1.0
-            job.message = "done"
+            job.message = f"{len(reels)} reels ready" if len(reels) > 1 else "done"
         except Exception as exc:
             job.status = JobStatus.FAILED
             job.error = str(exc)
@@ -208,7 +217,7 @@ class JobStore:
 
 def _options_to_overrides(options: dict[str, Any]) -> dict[str, Any]:
     seg: dict[str, Any] = {}
-    for key in ("max_clips", "min_duration", "max_duration", "percentile"):
+    for key in ("max_clips", "clips_per_reel", "min_duration", "max_duration", "percentile"):
         if options.get(key) is not None:
             seg[key] = options[key]
     if options.get("target_duration") is not None:

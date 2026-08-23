@@ -197,3 +197,69 @@ def sports_vod(tmp_path_factory: pytest.TempPathFactory) -> Path:
         ),
     )
     return out
+
+
+# Landmarks in `repeat_vod`, in seconds. The first and third runs are the same
+# action in the same place; the middle one moves the other way, diagonally.
+REPEAT_FIRST = (20.0, 26.0)
+REPEAT_DIFFERENT = (110.0, 116.0)
+REPEAT_AGAIN = (200.0, 206.0)
+
+
+@pytest.fixture(scope="session")
+def repeat_vod(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Four minutes with the same action happening twice, three minutes apart.
+
+    Built to exercise the one case `similarity` exists for and `diversity`
+    cannot see: two moments that are far enough apart to look unrelated in
+    time and are in fact the same thing again. The middle event is a control —
+    equally loud, visually different — so a refiner that simply penalises
+    everything fails this fixture rather than passing it by accident.
+    """
+    if not HAS_FFMPEG:
+        pytest.skip("ffmpeg not installed")
+    out = tmp_path_factory.mktemp("repeat") / "repeat.mp4"
+    a0, a1 = REPEAT_FIRST
+    b0, _b1 = REPEAT_DIFFERENT
+    c0, c1 = REPEAT_AGAIN
+    graph = (
+        f"[1:a]volume='1+9*(between(t,{a0},{a1})+between(t,{b0},{b0 + 6})"
+        f"+between(t,{c0},{c1}))':eval=frame[a];"
+        "color=c=white:s=70x70:d=240[b];"
+        f"[0:v][b]overlay=x='if(between(t,{a0},{a1}),40+(t-{a0})*60,"
+        f"if(between(t,{c0},{c1}),40+(t-{c0})*60,"
+        f"if(between(t,{b0},{b0 + 6}),380-(t-{b0})*40,-100)))':"
+        f"y='if(between(t,{b0},{b0 + 6}),20+(t-{b0})*22,150)'[v]"
+    )
+    _run(
+        "ffmpeg -v error -y -f lavfi -i color=c=0x14331f:s=480x270:r=25:d=240 "
+        "-f lavfi -i anoisesrc=d=240:c=pink:a=0.02:r=16000 "
+        "-filter_complex {graph} -map [v] -map [a] -shortest "
+        "-c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p -c:a aac {out}",
+        graph=graph,
+        out=str(out),
+    )
+    return out
+
+
+@pytest.fixture(scope="session")
+def boring_vod(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A minute of nothing: a static scene and room tone.
+
+    Not a broken file and not a silent one — a perfectly valid recording of an
+    idle lobby, an unattended camera, a stream left running. This is the input
+    every relative threshold in the pipeline gets wrong, because a percentile
+    of a flat curve still selects its top slice.
+    """
+    if not HAS_FFMPEG:
+        pytest.skip("ffmpeg not installed")
+    out = tmp_path_factory.mktemp("boring") / "boring.mp4"
+    _run(
+        "ffmpeg -v error -y -f lavfi -i color=c=0x203040:s=320x180:r=15:d=60 "
+        "-f lavfi -i sine=frequency=110:sample_rate=16000:duration=60 "
+        "-filter_complex [0:v]noise=alls=8:allf=t+u[v];[1:a]volume=0.05[a] "
+        "-map [v] -map [a] -shortest "
+        "-c:v libx264 -preset ultrafast -crf 30 -pix_fmt yuv420p -c:a aac {out}",
+        out=str(out),
+    )
+    return out

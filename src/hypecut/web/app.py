@@ -25,6 +25,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .. import __version__
 from ..cli import VARIANT_PRESETS
+from ..config import describe_profiles
 from ..jobs import JobStore
 from ..reframe import MODES as REFRAME_MODES
 
@@ -71,9 +72,9 @@ def meta() -> dict[str, Any]:
         "allowed_suffixes": sorted(ALLOWED_SUFFIXES),
         "reframe_modes": list(REFRAME_MODES),
         "variants": sorted(VARIANT_PRESETS),
-        "profiles": sorted(p.name for p in Path("configs").glob("*.yaml"))
-        if Path("configs").is_dir()
-        else [],
+        # Name + the profile's own first comment line, so the picker can offer
+        # "football, basketball, broadcast coverage" instead of a filename.
+        "profiles": describe_profiles(Path("configs")) if Path("configs").is_dir() else [],
     }
 
 
@@ -81,11 +82,12 @@ def meta() -> dict[str, Any]:
 async def create_job(
     file: UploadFile = File(...),
     target_duration: float = Form(120.0),
-    max_clips: int = Form(20),
+    max_clips: int = Form(0),
+    clips_per_reel: int = Form(10),
     percentile: float = Form(92.0),
     min_duration: float = Form(4.0),
     max_duration: float = Form(20.0),
-    refiners: str = Form("diversity,pacing"),
+    refiners: str = Form("diversity,pacing,similarity"),
     profile: str = Form(""),
     reframe: str = Form("off"),
     reframe_track: bool = Form(False),
@@ -130,6 +132,7 @@ async def create_job(
     options = {
         "target_duration": target_duration,
         "max_clips": max_clips,
+        "clips_per_reel": clips_per_reel,
         "percentile": percentile,
         "min_duration": min_duration,
         "max_duration": max_duration,
@@ -174,6 +177,19 @@ def get_reel(job_id: str) -> FileResponse:
         raise HTTPException(status_code=404, detail="Reel not ready")
     stem = Path(job.filename).stem or "highlights"
     return FileResponse(job.output, media_type="video/mp4", filename=f"{stem}_highlights.mp4")
+
+
+@app.get("/api/jobs/{job_id}/part/{index}")
+def get_part(job_id: str, index: int) -> FileResponse:
+    """Reel ``index`` (1-based) of a cut that was too long for a single file."""
+    job = store.get(job_id)
+    parts = (job.parts if job else None) or []
+    if not 1 <= index <= len(parts) or not Path(parts[index - 1]).exists():
+        raise HTTPException(status_code=404, detail=f"No part {index} for this job")
+    stem = Path(job.filename).stem or "highlights"  # type: ignore[union-attr]
+    return FileResponse(
+        parts[index - 1], media_type="video/mp4", filename=f"{stem}_highlights_{index}.mp4"
+    )
 
 
 @app.get("/api/jobs/{job_id}/reel/{variant}")

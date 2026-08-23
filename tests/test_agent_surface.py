@@ -8,14 +8,14 @@ from pathlib import Path
 import pytest
 
 from hypecut import Config, analyze
-from hypecut.cli import _describe_profiles
+from hypecut.config import describe_profiles
 from hypecut.plan import plan_from_dict
 from tests.conftest import requires_ffmpeg
 
 
 def test_profiles_are_described_by_their_own_first_comment():
     """The summary lives in the profile, so it cannot drift from it."""
-    found = _describe_profiles(Path(__file__).resolve().parents[1] / "configs")
+    found = describe_profiles(Path(__file__).resolve().parents[1] / "configs")
     assert found, "no profiles found"
     names = {item["name"] for item in found}
     assert {"default", "sports-broadcast", "shorts"} <= names

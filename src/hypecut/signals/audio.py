@@ -28,6 +28,8 @@ class AudioRms(Signal):
 
     description = "Short-term RMS loudness (dBFS) — sustained excitement."
     requires_audio = True
+    # dB. A rise of under 3 dB over the whole video is room tone, not an event.
+    noise_floor = 3.0
 
     def compute(self, ctx: AnalysisContext) -> np.ndarray:
         floor_db = float(self.params.get("floor_db", -60.0))

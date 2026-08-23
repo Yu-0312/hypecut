@@ -54,7 +54,7 @@ render:
     gameplay: [0.0, 0.0, 1.0, 1.0]
     facecam_share: 0.32
 
-refiners: [diversity, pacing]
+refiners: [diversity, pacing, similarity]
 refiner_params:
   pacing:
     ideal: 11.0

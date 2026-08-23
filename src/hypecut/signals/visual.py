@@ -29,6 +29,8 @@ class SceneChange(Signal):
 
     description = "Frame-to-frame difference — cuts, respawns, killcams."
     requires_video = True
+    # Luma levels. Real dark-scene cuts measure ~2.9; below 1.5 is codec flicker.
+    noise_floor = 1.5
 
     def compute(self, ctx: AnalysisContext) -> np.ndarray:
         f = _frames(ctx)
@@ -52,6 +54,8 @@ class Motion(Signal):
 
     description = "Fraction of the frame in motion — action density."
     requires_video = True
+    # Fraction of the frame. Under 2% is dither and mouse cursors.
+    noise_floor = 0.02
 
     def compute(self, ctx: AnalysisContext) -> np.ndarray:
         thr = float(self.params.get("threshold", 6.0))
@@ -69,6 +73,8 @@ class Flash(Signal):
 
     description = "Global luminance jumps — explosions, flashes, ultimates."
     requires_video = True
+    # Luma levels, same units as scene_change.
+    noise_floor = 1.5
 
     def compute(self, ctx: AnalysisContext) -> np.ndarray:
         f = _frames(ctx)
@@ -96,6 +102,8 @@ class RoiActivity(Signal):
 
     description = "Change inside a normalised ROI box — kill feed / scoreboard."
     requires_video = True
+    # Fraction of the box. A kill-feed line appearing changes far more than 5%.
+    noise_floor = 0.05
 
     def compute(self, ctx: AnalysisContext) -> np.ndarray:
         box = self.params.get("box", [0.62, 0.03, 0.99, 0.30])

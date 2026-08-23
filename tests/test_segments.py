@@ -71,13 +71,42 @@ def test_merge_joins_near_neighbours_and_caps_duration():
     assert merged[1].start == 100.0
 
 
-def test_select_respects_budget_and_returns_timeline_order():
+def test_select_returns_timeline_order_and_budgets_each_reel():
+    """The budget is per reel now, so a third clip spills instead of vanishing."""
     cfg = SegmentConfig(max_clips=10, target_duration=20.0)
     chosen = select(
         [Candidate(50.0, 60.0, 0.9), Candidate(10.0, 20.0, 0.8), Candidate(80.0, 90.0, 0.7)], cfg
     )
-    assert sum(c.duration for c in chosen) <= 20.0
     assert [c.start for c in chosen] == sorted(c.start for c in chosen)
+    assert len(chosen) == 3, "nothing should be discarded — max_clips allows all three"
+
+    reels: dict[int, float] = {}
+    for clip in chosen:
+        reels[clip.meta["reel"]] = reels.get(clip.meta["reel"], 0.0) + clip.duration
+    assert list(reels) == [1, 2]
+    assert all(total <= 20.0 for total in reels.values())
+
+
+def test_max_clips_discards_by_score_not_by_position():
+    """The cap is the only thing that throws work away, and it keeps the best."""
+    cfg = SegmentConfig(max_clips=2, target_duration=None)
+    chosen = select(
+        [Candidate(10.0, 20.0, 0.3), Candidate(50.0, 60.0, 0.9), Candidate(80.0, 90.0, 0.7)], cfg
+    )
+    assert [c.start for c in chosen] == [50.0, 80.0]
+
+
+def test_a_long_video_spills_into_several_reels_in_time_order():
+    cfg = SegmentConfig(max_clips=0, target_duration=None, clips_per_reel=10)
+    chosen = select([Candidate(i * 30.0, i * 30.0 + 8.0, 0.5) for i in range(23)], cfg)
+
+    reels: dict[int, list[float]] = {}
+    for clip in chosen:
+        reels.setdefault(clip.meta["reel"], []).append(clip.start)
+
+    assert [len(v) for v in reels.values()] == [10, 10, 3], "10 per reel, remainder last"
+    assert max(reels[1]) < min(reels[2]) < max(reels[2]) < min(reels[3]), "chronological parts"
+    assert [c.meta["rank"] for c in chosen[:11]] == [*range(1, 11), 1], "rank restarts per reel"
 
 
 def test_select_always_returns_something_when_budget_is_tiny():

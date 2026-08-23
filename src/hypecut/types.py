@@ -72,6 +72,10 @@ class SignalTrack:
     name: str
     values: np.ndarray  # (T,) raw, un-normalised
     weight: float = 1.0
+    # Smallest rise in ``values`` units that means anything. Carried from the
+    # signal class so `prominence` can tell a real event from a ratio computed
+    # against a near-zero baseline. 0.0 means the signal declined to say.
+    noise_floor: float = 0.0
     meta: dict[str, Any] = field(default_factory=dict)
 
 
@@ -130,16 +134,44 @@ class HighlightPlan:
     curve: np.ndarray  # (T,) fused excitement score
     times: np.ndarray  # (T,)
     tracks: list[SignalTrack] = field(default_factory=list)
+    # How far the best moment stood above this video's background, and the bar
+    # it had to clear. Recorded even when nothing was cut — especially then,
+    # because "nothing found" is otherwise indistinguishable from a crash.
+    prominence: float = 0.0
+    min_prominence: float = 0.0
 
     @property
     def total_duration(self) -> float:
         return sum(s.duration for s in self.segments)
+
+    def reels(self) -> list[list[Candidate]]:
+        """The segments grouped into reels, in order. Always at least one."""
+        if not self.segments:
+            return []
+        groups: dict[int, list[Candidate]] = {}
+        for seg in self.segments:
+            groups.setdefault(int(seg.meta.get("reel", 1)), []).append(seg)
+        return [sorted(groups[key], key=lambda s: s.start) for key in sorted(groups)]
+
+    @property
+    def empty_reason(self) -> str:
+        """Why there are no segments, in words, or "" if there are some."""
+        if self.segments:
+            return ""
+        if self.min_prominence and self.prominence < self.min_prominence:
+            return (
+                f"nothing in this video stands out from its own background "
+                f"(prominence {self.prominence:.1f}, needs {self.min_prominence:.1f})"
+            )
+        return "no moment cleared the score threshold"
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "source": self.info.path,
             "source_duration": round(self.info.duration, 3),
             "reel_duration": round(self.total_duration, 3),
+            "prominence": round(self.prominence, 3),
+            "min_prominence": round(self.min_prominence, 3),
             "segments": [s.to_dict() for s in self.segments],
             "signals": [t.name for t in self.tracks],
         }

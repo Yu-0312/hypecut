@@ -78,6 +78,9 @@ Common corrections, in the order they usually apply:
 | Symptom | Fix |
 |---|---|
 | Clips on menus or dead time | raise `--percentile`, or lower the weight of whatever `reasons` shows dominating |
+| "Nothing to cut" on a video you know has something | lower `segments.min_prominence` (default 4, set 0 to skip the check) |
+| The same moment twice, minutes apart | that is what `similarity` is for — check it is in `refiners` |
+| A replay was dropped that should have stayed | raise `similarity.replay_window` (default 90 s) |
 | Scoreboard ignored | set the `roi_change` / `roi_activity` box to the corner you found in step 1 |
 | Clips start after the moment | raise `segments.reaction_lag` (sport) or `pre_roll` |
 | Everything from one stretch | raise `diversity.min_gap` |
@@ -154,7 +157,9 @@ in what you hand the user, and in the PR if they contribute it upstream.
 
 ## What you get back
 
-- `reel.mp4` — the reel, with a chapter marker per clip
+- `reel.mp4` — the reel, with a chapter marker per clip. Several highlights'
+  worth of video gives `reel.part1.mp4`, `reel.part2.mp4` … in time order,
+  each with its own cut list and EDL
 - `reel.hypecut.json` — the cut list *and* the full config. Re-renderable with
   `hypecut render`; this is the file to keep.
 - `reel.edl` — a CMX3600 edit list, openable in Resolve or Premiere
@@ -170,6 +175,18 @@ burn an encode to find out the percentile was wrong.
 **Never invent timestamps.** If you want a clip the detector missed, add it
 to `plan.json` with real times you found on the contact sheet, and say that
 you added it by hand.
+
+**"Nothing here" is a real answer — pass it on.** `analyze` returns no
+segments when nothing in the video stands out from its own background, and
+`plan.empty_reason` says so with the numbers. Report that. Do not quietly
+drop `min_prominence` to 0 and hand over a reel of the least-boring parts of
+an idle recording; if you think the check is wrong, say what you are
+overriding and why.
+
+**Expect more than one reel.** Past ten clips the cut spills into
+`reel.part2.mp4` and so on, chronologically. Tell the user how many parts
+there are and what each covers — a single "here is your reel" when there are
+four files is a bad handover.
 
 **Explain in signals, not vibes.** "It picked 14:22 because `roi_activity`
 spiked — that is the kill feed" is checkable. "It looked exciting" is not.
@@ -188,7 +205,8 @@ mention that before enabling either.
 | Error | Meaning |
 |---|---|
 | `Missing required binaries` | ffmpeg is not on PATH — stop |
-| `No highlights found` | the percentile is too high for this footage; try 85 |
+| `Nothing to cut: nothing … stands out` | the video really may be empty; the message carries the measured prominence and the bar |
+| `no moment cleared the score threshold` | the percentile is too high for this footage; try 85 |
 | `No video stream found` | not a video, or the file is truncated |
 | `Unknown config key(s)` | a typo in a profile; the message names the key |
 | `Segment N is 0.0s long after clamping` | an edited plan has times outside the source |
