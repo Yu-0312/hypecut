@@ -21,8 +21,13 @@ make test
 ```
 
 You need **ffmpeg** on your `PATH`. Tests that need it skip themselves if it's
-missing, so a bare `pytest` run passing does not mean much — check the skip
-count.
+missing, so a passing run does not mean much on its own — check the skip count.
+
+Run the suite as `pytest` (which is what `make test` and CI do), not as
+`python -m pytest`. The two are not equivalent: `python -m` prepends the
+working directory to `sys.path`, so it can import things a real installation
+cannot. A suite that only passes under `python -m pytest` is a suite that
+will fail in CI.
 
 ## Before you open a PR
 
