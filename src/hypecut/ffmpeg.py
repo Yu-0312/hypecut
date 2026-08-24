@@ -7,6 +7,7 @@ user's ffmpeg supports, HypeCut supports.
 
 from __future__ import annotations
 
+import functools
 import json
 import re
 import shutil
@@ -21,6 +22,7 @@ __all__ = [
     "FFmpegNotFound",
     "FFmpegError",
     "require_ffmpeg",
+    "has_filter",
     "probe",
     "decode_audio",
     "decode_gray_frames",
@@ -44,6 +46,29 @@ def require_ffmpeg() -> None:
             f"Missing required binaries: {', '.join(missing)}. "
             "Install ffmpeg (https://ffmpeg.org/download.html) and retry."
         )
+
+
+@functools.cache
+def has_filter(name: str) -> bool:
+    """Is this filter compiled into the ffmpeg on PATH?
+
+    Not every ffmpeg has every filter. ``drawtext`` in particular needs
+    libfreetype at build time, and the Homebrew bottle used on GitHub's macOS
+    runners is built without it — so a machine can have a perfectly good
+    ffmpeg, a perfectly good font, and still no way to draw text. Asking the
+    binary what it can do is the only reliable test; the presence of a font
+    file answers a different question.
+
+    Answers ``False`` if ffmpeg cannot be run at all, which lets callers treat
+    "no such filter" and "no ffmpeg" the same way when the feature is optional.
+    """
+    try:
+        listing = run(["ffmpeg", "-hide_banner", "-loglevel", "quiet", "-filters"], capture=True)
+    except (FFmpegError, OSError):
+        return False
+    # Lines look like: " T.. drawtext         V->V       Draw text on top ..."
+    pattern = re.compile(rf"^\s*\S+\s+{re.escape(name)}\s", re.MULTILINE)
+    return bool(pattern.search(listing.decode("utf-8", "replace")))
 
 
 def run(args: list[str], *, capture: bool = False) -> bytes:

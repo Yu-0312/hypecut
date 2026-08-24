@@ -24,7 +24,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from .ffmpeg import cmd, require_ffmpeg, run
+from .ffmpeg import cmd, has_filter, require_ffmpeg, run
 from .types import Candidate, VideoInfo
 
 __all__ = ["contact_sheet", "sample_times"]
@@ -125,9 +125,20 @@ def contact_sheet(
 
 
 def _font_file() -> str | None:
-    """A usable TTF, or None. Labels are a nicety; their absence is survivable."""
+    """A usable TTF, or None. Labels are a nicety; their absence is survivable.
+
+    Two things have to be true to burn a caption in, and they fail
+    independently. There has to be a font, and the ffmpeg on PATH has to have
+    been built with ``drawtext`` — which needs libfreetype at compile time and
+    which Homebrew's macOS bottle does without. Checking only for the font
+    found a perfectly good Arial on a machine whose ffmpeg could not draw with
+    it, and turned an optional label into a crash.
+    """
     import shutil
     import subprocess
+
+    if not has_filter("drawtext"):
+        return None
 
     if shutil.which("fc-match"):
         try:

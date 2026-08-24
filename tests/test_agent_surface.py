@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
@@ -162,3 +163,27 @@ def test_contact_sheet_does_not_pad_a_short_grid(sample_vod, tmp_path):
     from PIL import Image  # noqa: PLC0415 - only needed for this assertion
 
     assert Image.open(single).width < Image.open(wide).width
+
+
+@requires_ffmpeg
+def test_a_contact_sheet_survives_an_ffmpeg_that_cannot_draw_text(sample_vod, tmp_path):
+    """Captions are a nicety. Losing them must not mean losing the sheet.
+
+    `drawtext` needs libfreetype at build time and Homebrew's macOS bottle
+    goes without it, so a machine can have a working ffmpeg, a working font,
+    and still no way to burn a label in. The original code checked only for
+    the font, found Arial, built a drawtext filter, and crashed — which is how
+    this reached CI. The returned index matters most: it is the tile-to-
+    timestamp mapping, and it has to survive even when the picture cannot
+    carry the numbers itself.
+    """
+    from hypecut import contact
+    from hypecut.ffmpeg import probe
+
+    info = probe(sample_vod)
+    with mock.patch.object(contact, "has_filter", lambda name: name != "drawtext"):
+        plain, index = contact.contact_sheet(info, tmp_path / "plain.png", count=4, columns=4)
+
+    assert plain.exists() and plain.stat().st_size > 0
+    assert [entry["tile"] for entry in index] == [1, 2, 3, 4]
+    assert all(isinstance(entry["time"], float) for entry in index)
