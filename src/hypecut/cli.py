@@ -18,6 +18,7 @@ from pathlib import Path
 
 from . import __version__
 from .config import Config, describe_profiles, load_config
+from .download import DownloadError
 from .ffmpeg import FFmpegError, FFmpegNotFound
 from .reframe import MODES as REFRAME_MODES
 
@@ -95,13 +96,25 @@ def build_parser() -> argparse.ArgumentParser:
         )
         p.add_argument(
             "--facecam",
-            metavar="X0,Y0,X1,Y1",
-            help="facecam box in 0-1 coordinates, e.g. 0,0,0.26,0.3 (stack mode, --react)",
+            metavar="X0,Y0,X1,Y1|auto",
+            help=(
+                "facecam box in 0-1 coordinates, e.g. 0,0,0.26,0.3 (stack mode, "
+                "--react), or 'auto' to locate it from the footage"
+            ),
         )
         p.add_argument(
             "--react",
             action="store_true",
             help="in crop mode, pull the frame toward the facecam when it is busy",
+        )
+        p.add_argument(
+            "--chat",
+            metavar="LOG",
+            help=(
+                "chat log to score alongside the video (JSONL, TwitchDownloader "
+                "JSON or plain timestamped lines); without a path, a sibling "
+                "<video>.chat.jsonl/.json/.txt/.log is used"
+            ),
         )
         p.add_argument(
             "--also",
@@ -137,6 +150,13 @@ def build_parser() -> argparse.ArgumentParser:
     batch.add_argument("--recursive", action="store_true", help="descend into subfolders")
     batch.add_argument(
         "--overwrite", action="store_true", help="re-cut files whose reel already exists"
+    )
+    batch.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        metavar="N",
+        help="cut N files at once (default 1; fine-grained progress is lost beyond 1)",
     )
 
     ana = sub.add_parser("analyze", help="propose clips without encoding")
@@ -259,6 +279,17 @@ def _config_from_args(args: argparse.Namespace) -> Config:
         overrides["render"] = render
     if args.refiner:
         overrides["refiners"] = args.refiner
+    if getattr(args, "chat", None):
+        from dataclasses import asdict
+
+        signals = asdict(cfg.signals)
+        enabled = list(signals.get("enabled") or [])
+        if "chat_rate" not in enabled:
+            enabled.append("chat_rate")
+        signals["enabled"] = enabled
+        signals.setdefault("weights", {})["chat_rate"] = 1.2
+        signals.setdefault("params", {})["chat_rate"] = {"log": args.chat}
+        overrides["signals"] = signals
     return cfg.merged(overrides) if overrides else cfg
 
 
@@ -274,6 +305,33 @@ def _collect(root: Path, patterns: list[str] | None, recursive: bool) -> list[Pa
     return sorted(found)
 
 
+def _batch_job(source: str, dest: str, cfg: Config, progress=None) -> tuple[str, str, list[str]]:
+    """Cut one file — the unit of work for a batch worker process.
+
+    Top-level and picklable on purpose: it is dispatched to a process pool
+    under ``--workers`` (where ``progress`` stays ``None`` — a progress
+    callback cannot cross a process boundary). Everything it returns is
+    plain data.
+    """
+    from .pipeline import run as run_one
+
+    try:
+        result = run_one(source, dest, cfg, progress=progress)
+        if not result.reels:
+            # Not a failure. A folder of recordings usually contains a few
+            # that genuinely have nothing in them, and inventing a reel for
+            # those is exactly what the emptiness check exists to prevent.
+            return "empty", result.plan.empty_reason, []
+        return "ok", "", [str(reel.path) for reel in result.reels]
+    except KeyboardInterrupt:  # pragma: no cover - user abort
+        raise
+    except Exception as exc:
+        # One bad file must not end the run. Flatten the message: ffmpeg
+        # errors put the useful part on the *second* line, so keeping only
+        # the first would report "ffprobe failed" and nothing about why.
+        return "failed", " ".join(str(exc).split())[:160], []
+
+
 def _run_batch(args: argparse.Namespace, cfg: Config, report) -> int:
     """Cut every video in a folder, carrying on past individual failures.
 
@@ -281,8 +339,6 @@ def _run_batch(args: argparse.Namespace, cfg: Config, report) -> int:
     actually have — a directory of recordings, one of which is truncated. Each
     failure is reported and counted; the exit code reflects whether any failed.
     """
-    from .pipeline import run as run_one
-
     root = Path(args.source)
     if not root.is_dir():
         print(f"error: {root} is not a directory", file=sys.stderr)
@@ -297,43 +353,43 @@ def _run_batch(args: argparse.Namespace, cfg: Config, report) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     sources = [s for s in sources if out_dir not in s.parents]
 
-    done: list[tuple[Path, list[Path]]] = []
-    empty: list[tuple[Path, str]] = []
+    pending: list[tuple[Path, Path]] = []
     skipped: list[Path] = []
-    failed: list[tuple[Path, str]] = []
-
-    for index, source in enumerate(sources, start=1):
+    for source in sources:
         dest = out_dir / f"{source.stem}_highlights.mp4"
         if dest.exists() and not args.overwrite:
             skipped.append(source)
-            continue
-        if not args.quiet:
-            print(f"\n[{index}/{len(sources)}] {source.name}", file=sys.stderr)
-        try:
-            result = run_one(source, dest, cfg, progress=report)
-            if not result.reels:
-                # Not a failure. A folder of recordings usually contains a few
-                # that genuinely have nothing in them, and inventing a reel for
-                # those is exactly what the emptiness check exists to prevent.
-                empty.append((source, result.plan.empty_reason))
-                continue
-            done.append((source, [reel.path for reel in result.reels]))
-        except KeyboardInterrupt:  # pragma: no cover - user abort
-            print("\ninterrupted", file=sys.stderr)
-            return 130
-        except Exception as exc:
-            # One bad file must not end the run. Flatten the message: ffmpeg
-            # errors put the useful part on the *second* line, so keeping only
-            # the first would report "ffprobe failed" and nothing about why.
-            reason = " ".join(str(exc).split())
-            failed.append((source, reason[:160]))
+        else:
+            pending.append((source, dest))
+
+    results: dict[Path, tuple[str, str, list[str]]] = {}
+    if args.workers > 1 and len(pending) > 1:
+        results = _run_batch_parallel(pending, cfg, args.workers, report, args.quiet)
+    else:
+        for index, (source, dest) in enumerate(pending, start=1):
+            if not args.quiet:
+                print(f"\n[{index}/{len(pending)}] {source.name}", file=sys.stderr)
+            results[source] = _batch_job(str(source), str(dest), cfg, progress=report)
+
+    done: list[tuple[Path, list[str]]] = []
+    empty: list[tuple[Path, str]] = []
+    failed: list[tuple[Path, str]] = []
+    for source in sources:  # report in folder order, not completion order
+        status, detail, paths = results.get(source, ("skip", "", []))
+        if status == "ok":
+            done.append((source, paths))
+        elif status == "empty":
+            empty.append((source, detail))
+        elif status == "failed":
+            failed.append((source, detail))
 
     print(
         f"\n{len(done)} cut, {len(empty)} with nothing in them, "
         f"{len(skipped)} skipped, {len(failed)} failed -> {out_dir}"
     )
     for source, paths in done:
-        names = paths[0].name if len(paths) == 1 else f"{len(paths)} parts, {paths[0].name} ..."
+        first = Path(paths[0]).name
+        names = first if len(paths) == 1 else f"{len(paths)} parts, {first} ..."
         print(f"  ok      {source.name} -> {names}")
     for source, why in empty:
         print(f"  empty   {source.name}: {why}")
@@ -342,6 +398,41 @@ def _run_batch(args: argparse.Namespace, cfg: Config, report) -> int:
     for source, why in failed:
         print(f"  failed  {source.name}: {why}", file=sys.stderr)
     return 1 if failed else 0
+
+
+def _run_batch_parallel(
+    pending: list[tuple[Path, Path]], cfg: Config, workers: int, report, quiet: bool
+) -> dict[Path, tuple[str, str, list[str]]]:
+    """Run ``_batch_job`` across a process pool, printing per-file results.
+
+    Fine-grained progress bars do not survive a process boundary, so each
+    file reports one line when it finishes instead.
+    """
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+
+    results: dict[Path, tuple[str, str, list[str]]] = {}
+    total = len(pending)
+    with ProcessPoolExecutor(max_workers=min(workers, total)) as pool:
+        futures = {
+            pool.submit(_batch_job, str(source), str(dest), cfg): source for source, dest in pending
+        }
+        for index, future in enumerate(as_completed(futures), start=1):
+            source = futures[future]
+            try:
+                results[source] = future.result()
+            except KeyboardInterrupt:  # pragma: no cover - user abort
+                pool.shutdown(wait=False, cancel_futures=True)
+                print("\ninterrupted", file=sys.stderr)
+                raise
+            except Exception as exc:  # defensive: _batch_job already catches
+                results[source] = ("failed", " ".join(str(exc).split())[:160], [])
+            status, detail, _ = results[source]
+            if not quiet:
+                suffix = f": {detail}" if detail else ""
+                print(f"[{index}/{total}] {status:<5} {source.name}{suffix}", file=sys.stderr)
+            if report:
+                report(index / total, f"{status} {source.name}")
+    return results
 
 
 def _run_contact_sheet(args: argparse.Namespace) -> int:
@@ -513,8 +604,10 @@ def _mean(values) -> float:
     return sum(items) / len(items) if items else 0.0
 
 
-def _parse_box(text: str) -> list[float]:
-    """Parse ``x0,y0,x1,y1`` in normalised 0-1 coordinates."""
+def _parse_box(text: str) -> list[float] | str:
+    """Parse ``x0,y0,x1,y1`` in normalised 0-1 coordinates, or accept ``auto``."""
+    if text.strip().lower() == "auto":
+        return "auto"
     try:
         values = [float(part) for part in text.replace(" ", "").split(",")]
     except ValueError as exc:
@@ -598,9 +691,20 @@ def main(argv: list[str] | None = None) -> int:
         uvicorn.run("hypecut.web.app:app", host=args.host, port=args.port, reload=args.reload)
         return 0
 
+    from .download import ensure_local
     from .pipeline import analyze, render_reels
 
     try:
+        # A URL is fetched once into the download cache and then handled
+        # like any other file. Only the single-source commands; `batch`
+        # remains a folder operation.
+        if (
+            args.command in ("cut", "analyze", "contact-sheet", "label")
+            or args.command == "render"
+            and args.source
+        ):
+            args.source = str(ensure_local(args.source, progress=_progress(args.quiet)))
+
         if args.command == "contact-sheet":
             return _run_contact_sheet(args)
         if args.command == "label":
@@ -663,6 +767,9 @@ def main(argv: list[str] | None = None) -> int:
     except FFmpegNotFound as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 3
+    except DownloadError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     except (FFmpegError, ValueError, RuntimeError, KeyError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

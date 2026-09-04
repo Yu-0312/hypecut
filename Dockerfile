@@ -18,7 +18,7 @@ COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
 COPY configs ./configs
 
-RUN pip install --no-cache-dir ".[web]"
+RUN pip install --no-cache-dir ".[web,ytdlp]"
 
 # Run as a non-root user; /data is the only writable path needed at runtime.
 RUN useradd --create-home --uid 10001 hypecut \

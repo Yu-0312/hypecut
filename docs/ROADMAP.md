@@ -76,27 +76,46 @@ interesting it is to build. Items marked **help wanted** are good entry points.
 - [x] **A web UI an ordinary person can use.** Two plain questions, one
       button, everything else folded away.
 
-## v0.9 — cut points, continued
+## Shipped in v0.9
 
-- [ ] **Auto-locate the facecam.** `react_to_facecam` needs the box to be
-      right, which is the one thing a user has to supply by hand. A one-off
-      detection pass (optional extra) could find it and remove the setting.
-      **help wanted**
-- [ ] **Wipe and slide detection.** Dissolves are covered; a wipe keeps its
-      contrast and so is invisible to the current test. **help wanted**
-- [ ] **Word-boundary trimming.** Pauses are found from loudness alone, so a
-      slow speaker with no gaps still gets cut mid-word. ASR word timings
-      (behind the existing `[asr]` extra) would fix it. **help wanted**
+- [x] **Auto-locate the facecam.** The box `react_to_facecam` and `stack`
+      always needed by hand is now found from the frames already decoded:
+      a webcam is a small rectangle that is persistently, mildly alive,
+      unlike an event-driven kill feed or sprawling gameplay. Opt in with
+      `render.reframe.facecam: auto` or `--facecam auto`; low-confidence
+      verdicts fall back to the default box. No model, no extra decode.
+- [x] **Wipe and slide detection.** A wipe keeps its contrast, so the
+      dissolve test never saw one. Wipes are found by their moving front —
+      narrow, directional, frame-covering — and treated as intervals like
+      dissolves: in-points land where the sweep completes, out-points where
+      it begins.
+- [x] **Word-boundary trimming.** With `segments.use_asr_words` and the
+      `[asr]` extra, pauses come from transcribed word timings instead of
+      loudness, so a slow speaker with no level gaps no longer gets cut
+      mid-word. Falls back to the loudness path with a warning when the
+      extra is missing.
 
-## v1.0 — reach
+## Shipped in v1.0 (in part)
 
-- [ ] **Twitch/YouTube VOD URLs as input**, via yt-dlp as an optional extra.
-- [ ] **Chat-log signal.** Twitch chat message rate is close to a free
-      human-labelled highlight track. Needs a log format adapter. **help wanted**
+- [x] **Twitch/YouTube VOD URLs as input**, via yt-dlp as the new
+      `[ytdlp]` extra. URLs download once into a local cache keyed by video
+      id; `cut`, `analyze`, `label`, `contact-sheet` and `render --source`
+      accept them.
+- [x] **Chat-log signal.** `chat_rate` reads JSONL, TwitchDownloader JSON
+      or plain timestamped logs — a sibling `<video>.chat.jsonl` by name,
+      or `--chat <log>`. Message rate fuses into the curve like any other
+      signal, and shows up in clip `reasons`.
+- [x] **Parallel batch workers.** `hypecut batch --workers N` cuts a folder
+      on a process pool; the default of 1 keeps the fine-grained progress
+      bar. Failure semantics and the exit code are unchanged.
+
+## v1.0 — what is left
+
 - [ ] **One reel across a whole folder** — batch mode makes one reel per file
-      today; a season recap wants the opposite.
-- [ ] **Parallel batch workers.** One file at a time is right on a laptop and
-      wasteful on a workstation.
+      today; a season recap wants the opposite. Needs the renderer to take
+      per-clip sources, which touches the sidecar, EDL and chapter formats;
+      still waiting on a design that does not complicate the single-source
+      path that everything else uses.
 
 ## v1.1 — deployments with more than one user
 

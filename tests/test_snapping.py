@@ -6,7 +6,13 @@ import numpy as np
 import pytest
 
 from hypecut.config import SegmentConfig
-from hypecut.snapping import boundary_strength, find_boundaries, find_dissolves, snap_segments
+from hypecut.snapping import (
+    boundary_strength,
+    find_boundaries,
+    find_dissolves,
+    find_wipes,
+    snap_segments,
+)
 from hypecut.types import AnalysisContext, Candidate, VideoInfo
 
 
@@ -198,11 +204,79 @@ def test_dissolve_snapping_can_be_switched_off():
     assert seg.meta.get("snap_kind", {}).get("start") != "dissolve"
 
 
+def _gray_with_wipe(
+    seconds: float = 20.0, wipe: tuple[float, float] = (8.0, 9.5), grid_fps: float = 10.0
+) -> np.ndarray:
+    """Two textured shots joined by a left-to-right slide of the incoming one."""
+    n = int(seconds * grid_fps)
+    h, w = 12, 32
+    rng = np.random.default_rng(7)
+    shot_a = rng.integers(0, 255, size=(h, w)).astype(np.float64)
+    shot_b = rng.integers(0, 255, size=(h, w)).astype(np.float64)
+
+    i0, i1 = int(wipe[0] * grid_fps), int(wipe[1] * grid_fps)
+    frames = np.zeros((n, h, w), dtype=np.uint8)
+    for i in range(n):
+        if i < i0:
+            frame = shot_a
+        elif i >= i1:
+            frame = shot_b
+        else:
+            front = int((i - i0) / max(1, i1 - i0) * w)  # incoming shot's right edge
+            frame = shot_a
+            if front > 0:
+                frame = np.concatenate([shot_b[:, :front], shot_a[:, front:]], axis=1)
+        frames[i] = np.clip(frame, 0, 255).astype(np.uint8)
+    return frames
+
+
+def test_find_wipes_locates_a_slide():
+    gray = _gray_with_wipe(wipe=(8.0, 9.5))
+    found = find_wipes(gray, grid_fps=10.0)
+    assert len(found) == 1
+    start, end = found[0]
+    assert start == pytest.approx(8.0, abs=0.3)
+    assert end == pytest.approx(9.5, abs=0.3)
+
+
+def test_find_dissolves_does_not_claim_a_wipe():
+    """The two classifiers split the same candidate run, not both claim it."""
+    gray = _gray_with_wipe(wipe=(8.0, 9.5))
+    assert find_dissolves(gray, grid_fps=10.0) == []
+
+
+def test_find_wipes_ignores_a_pan():
+    """A pan is sustained and spike-free too — but nothing sweeps across it."""
+    rng = np.random.default_rng(1)
+    base = rng.integers(0, 255, size=(12, 60)).astype(np.uint8)
+    gray = np.stack([np.roll(base, shift=i, axis=1)[:, :32] for i in range(200)])
+    assert find_wipes(gray, grid_fps=10.0) == []
+
+
+def test_find_wipes_ignores_sustained_scattered_motion():
+    """Busy gameplay changes a lot everywhere, in no direction — not a wipe."""
+    rng = np.random.default_rng(3)
+    gray = rng.integers(0, 255, size=(200, 12, 32)).astype(np.uint8)
+    assert find_wipes(gray, grid_fps=10.0) == []
+
+
+def test_snap_lands_on_the_far_side_of_a_wipe_for_the_in_point():
+    gray = _gray_with_wipe(wipe=(8.0, 9.5))
+    ctx = _ctx(gray, fps=30.0)
+    cfg = SegmentConfig(snap_fine=False, min_duration=3.0, max_duration=25.0)
+    seg = Candidate(8.6, 16.0, 0.9, meta={"peak_time": 13.0})
+
+    snap_segments(ctx, [seg], cfg)
+
+    assert seg.start == pytest.approx(9.5, abs=0.3), "should open on the incoming shot"
+    assert seg.meta["snap_kind"]["start"] == "wipe"
+
+
 def test_a_hard_cut_beats_a_dissolve_edge_at_the_same_distance():
     """Ties go to the more certain boundary."""
     from hypecut.snapping import _merge_boundaries, _nearest
 
-    boundaries = _merge_boundaries(np.array([10.0]), [10.0])
+    boundaries = _merge_boundaries(np.array([10.0]), [(10.0, "dissolve")])
     found = _nearest(boundaries, target=10.0, window=1.0, lo=0.0, hi=20.0)
     assert found == (10.0, "cut")
 

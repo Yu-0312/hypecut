@@ -229,6 +229,17 @@ compression flicker measures as *hundreds of times* the baseline. Relative
 evidence alone calls that a shot change. The floor stays low because a cut
 between two dark scenes can be worth only two or three levels.
 
+A **wipe** shares every dissolve feature except the contrast dip, which is
+why it was invisible until v0.9: a slide keeps both images at full contrast
+throughout. Its signature is geometry. At every moment the change is
+confined to a narrow moving *front*; the front crosses the frame in one
+direction (net travel over total path length); and the sweep covers the
+frame by the end. A pan is sustained too but moves *everything* a little
+each frame, and busy gameplay's change is scattered and directionless — both
+fail the front test. The landing points have the same shape as a dissolve's:
+an in-point waits for the sweep to complete, an out-point leaves before it
+starts.
+
 ### Silence-aware trimming (`trimming.py`)
 
 The audio half of the same problem, and the only half available on footage
@@ -244,6 +255,14 @@ absolute dBFS range but both have the same *gap* between talking and not. Two
 guards stop it inventing pauses — if almost nothing is below the threshold
 (continuous sound) or almost everything is (continuous quiet), the clip is left
 alone rather than moved on noise.
+
+That gap test can still be beaten: a slow speaker with no real pauses never
+drops 14 dB for 0.3 s, so an edge lands mid-word whatever the threshold. With
+`segments.use_asr_words` and the `[asr]` extra, the pause list comes from
+transcribed word timings instead — every gap between one word and the next is
+a known-safe landing point, and lead-in and tail are gaps too. Transcription
+runs once per video and is cached on the analysis context; without the extra
+the run warns and continues on the loudness path, unchanged.
 
 **Precedence is the important part.** Trimming only ever considers edges that
 found no shot boundary. A hard cut is unambiguous evidence about where a moment
@@ -277,9 +296,23 @@ between the two, which shows neither. "Busy" is measured against the *25th
 percentile* of facecam activity in the clip, not the median: a reaction filling
 most of the clip would drag the median up into itself and then measure as
 normal, the same mistake as normalising a signal against a window containing
-the thing you are detecting. No detector is involved; the box comes from the
-profile, which keeps this dependency-free and correct for whatever layout the
-streamer actually uses.
+the thing you are detecting.
+
+The box itself no longer has to come from the profile. `facecam: auto` runs
+`facecam.py`, a locator with the same ethos as everything here — no model, no
+extra decode — built on one observation: a webcam is the small rectangle that
+is *persistently* slightly alive. Sensor noise, compression shimmer and a
+person who never holds still give its cells a high duty cycle at low energy,
+frame after frame, for the whole video. A kill feed changes hard but rarely
+(low duty), gameplay moves constantly but over a large shifting area (no
+compact box), and static HUD never moves at all. Cells are scored on duty
+times energy, the best rectangle of live cells is grown from the strongest
+seed, the liveness has to hold across both halves of the timeline, and a
+corner prior finishes the job. The resolved box is stamped into each clip's
+reframe plan — so a render from the sidecar reproduces the crop without
+re-detecting — and a low-confidence verdict falls back to the default box
+rather than guessing. A manual box still wins when you have one, because you
+can see the layout and the locator cannot.
 
 Panning is off by default. A crop that chases every centroid wobble reads as
 camera drift, and a still frame placed at the *median* of the action is what

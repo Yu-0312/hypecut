@@ -173,7 +173,7 @@ def analyze(
         if reframe.mode == "off":
             continue
         progress(0.95, f"planning reframe ({variant or 'base'})")
-        segments = plan_reframe(ctx, segments, reframe, key=_plan_key(variant))
+        segments = plan_reframe(ctx, segments, reframe, key=_plan_key(variant), progress=progress)
 
     return HighlightPlan(
         info=info,

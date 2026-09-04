@@ -24,14 +24,24 @@ the sidecar JSON records exactly how each clip was framed.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import replace
+
 import numpy as np
 
-from .config import ReframeConfig
+from .config import DEFAULT_FACECAM_BOX, ReframeConfig
+from .facecam import locate_facecam
 from .types import AnalysisContext, Candidate, VideoInfo
 
 __all__ = ["action_track", "plan_reframe", "geometry_filters", "MODES"]
 
 MODES = ("off", "crop", "stack", "blur_pad")
+
+Progress = Callable[[float, str], None]
+
+#: Where the auto-detected box is cached on the analysis context, so several
+#: variants share one detection pass instead of each paying for its own.
+_FACECAM_CACHE_KEY = "facecam_auto"
 
 
 def action_track(ctx: AnalysisContext, seg: Candidate, cfg: ReframeConfig) -> list[float]:
@@ -70,7 +80,12 @@ def action_track(ctx: AnalysisContext, seg: Candidate, cfg: ReframeConfig) -> li
 
 
 def plan_reframe(
-    ctx: AnalysisContext, segments: list[Candidate], cfg: ReframeConfig, key: str = "reframe"
+    ctx: AnalysisContext,
+    segments: list[Candidate],
+    cfg: ReframeConfig,
+    key: str = "reframe",
+    *,
+    progress: Progress | None = None,
 ) -> list[Candidate]:
     """Annotate each clip with how it should be reframed.
 
@@ -82,10 +97,22 @@ def plan_reframe(
     if cfg.mode not in MODES:
         raise ValueError(f"Unknown reframe mode {cfg.mode!r}. Expected one of {MODES}.")
 
+    # `facecam: auto` is resolved once per analysis and cached on the context,
+    # so the base render and every variant share one detection pass. The box
+    # is stamped into each clip's reframe plan: that is what makes a render
+    # from the sidecar reproduce the same crop without re-locating anything.
+    resolved = cfg
+    if cfg.facecam == "auto":
+        found = _locate_cached(ctx, progress)
+        box = found["box"] if found else list(DEFAULT_FACECAM_BOX)
+        resolved = replace(cfg, facecam=list(box))
+
     for seg in segments:
         plan: dict[str, object] = {"mode": cfg.mode}
+        if cfg.facecam == "auto":
+            plan["facecam"] = list(resolved.facecam)
         if cfg.mode == "crop":
-            track = action_track(ctx, seg, cfg)
+            track = action_track(ctx, seg, resolved)
             if cfg.track and len(track) > 1:
                 plan["keyframes"] = _keyframes(track, seg.duration, cfg.keyframes)
             else:
@@ -95,6 +122,20 @@ def plan_reframe(
                 plan["x"] = round(float(np.median(track)), 4)
         seg.meta[key] = plan
     return segments
+
+
+def _locate_cached(ctx: AnalysisContext, progress: Progress | None) -> dict[str, object] | None:
+    """Detect the facecam once, reporting what was found the first time."""
+    if _FACECAM_CACHE_KEY not in ctx.extras:
+        found = locate_facecam(ctx)
+        ctx.extras[_FACECAM_CACHE_KEY] = found
+        if found:
+            box = ", ".join(f"{v:.2f}" for v in found["box"])  # type: ignore[attr-defined]
+            if progress:
+                progress(0.0, f"facecam located at [{box}] (confidence {found['confidence']})")
+        elif progress:
+            progress(0.0, "no facecam found with usable confidence — using the default box")
+    return ctx.extras[_FACECAM_CACHE_KEY]
 
 
 def geometry_filters(
@@ -113,6 +154,14 @@ def geometry_filters(
     mode = str(plan.get("mode", cfg.mode))
     out_w, out_h = _even(cfg.width), _even(cfg.height)
 
+    # The box stamped during analysis wins; the config is the fallback for a
+    # plan that never went through planning. "auto" cannot be resolved here —
+    # there are no decoded frames at render time — so it falls back to the
+    # default rather than guessing.
+    box = plan.get("facecam") or cfg.facecam
+    if not isinstance(box, list):
+        box = list(DEFAULT_FACECAM_BOX)
+
     if mode == "blur_pad":
         return [
             f"split[bgsrc][fgsrc];"
@@ -127,7 +176,7 @@ def geometry_filters(
         bottom_h = _even(out_h - top_h)
         return [
             f"split[fcsrc][gpsrc];"
-            f"[fcsrc]{_box_crop(cfg.facecam)},{_fit(out_w, top_h)}[top];"
+            f"[fcsrc]{_box_crop(box)},{_fit(out_w, top_h)}[top];"
             f"[gpsrc]{_box_crop(cfg.gameplay)},{_fit(out_w, bottom_h)}[bot];"
             f"[top][bot]vstack=inputs=2,setsar=1"
         ]

@@ -37,7 +37,9 @@ What you are looking for:
 - Is there a HUD element that already knows when something happened? A kill
   feed, a scoreboard, a lap counter. **Note which corner**, in 0-1
   coordinates; you will need the box.
-- Is there a facecam, and where?
+- Is there a facecam, and where? Note its corner — or let
+  `--facecam auto` find the box for you and check its answer on the
+  contact sheet instead of trusting it.
 - Does the camera cut between angles, or is it one locked-off shot?
 
 ### 2. Choose a profile
@@ -82,6 +84,9 @@ Common corrections, in the order they usually apply:
 | The same moment twice, minutes apart | that is what `similarity` is for — check it is in `refiners` |
 | A replay was dropped that should have stayed | raise `similarity.replay_window` (default 90 s) |
 | Scoreboard ignored | set the `roi_change` / `roi_activity` box to the corner you found in step 1 |
+| Facecam box wrong or missing | use `--facecam auto` (check the detected box on a contact sheet), or pass the box yourself |
+| A VOD sits on Twitch/YouTube | pass the URL — it downloads once into a local cache and needs `hypecut[ytdlp]` |
+| Chat was going wild on stream | `--chat log.jsonl` adds message rate as a signal — the audience already labelled it |
 | Clips start after the moment | raise `segments.reaction_lag` (sport) or `pre_roll` |
 | Everything from one stretch | raise `diversity.min_gap` |
 | Too many, too short | raise `--min-duration`, lower `--max-clips` |

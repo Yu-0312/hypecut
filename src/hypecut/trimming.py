@@ -13,11 +13,20 @@ boundary. A hard cut is unambiguous evidence about where a moment ends; a
 pause is a good guess. Running both and letting the second overwrite the
 first would mean the weaker signal decides, which is backwards.
 
+Pauses normally come from loudness. With ``segments.use_asr_words`` and the
+``[asr]`` extra installed, they come from transcribed word timings instead —
+every gap between one word and the next is a known-safe landing point, which
+fixes the slow speaker the level heuristic keeps clipping. Transcription
+runs once per video and is cached on the analysis context.
+
 Everything here reads the audio already decoded onto the analysis grid, so
-the whole pass costs a few milliseconds per clip.
+the loudness path costs a few milliseconds per clip; the ASR path costs one
+transcription pass and is opt-in for that reason.
 """
 
 from __future__ import annotations
+
+import warnings
 
 import numpy as np
 
@@ -120,6 +129,7 @@ def trim_segments(
 
     level = level_db(ctx)
     duration = ctx.info.duration
+    asr_mask = _asr_word_mask(ctx, cfg) if cfg.use_asr_words else None
 
     # Same reasoning as the snapper: an edge may travel at least as far as the
     # roll that placed it, because that roll was only ever a guess.
@@ -133,7 +143,9 @@ def trim_segments(
         i0 = int(np.clip(seg.start * ctx.grid_fps, 0, level.size - 1))
         i1 = int(np.clip(seg.end * ctx.grid_fps, i0 + 1, level.size))
 
-        mask = silence_mask(level, i0, i1, cfg.silence_drop_db)
+        mask = asr_mask
+        if mask is None:
+            mask = silence_mask(level, i0, i1, cfg.silence_drop_db)
         if mask is None:
             # No pauses to work with, but the fade hint is still knowable.
             seg.meta["ends_in_silence"] = ends_quiet(
@@ -189,6 +201,44 @@ def trim_segments(
         seg.meta["ends_in_silence"] = bool(mask[end_idx])
 
     return segments
+
+
+def _asr_word_mask(ctx: AnalysisContext, cfg: SegmentConfig) -> np.ndarray | None:
+    """A grid-wide "between words" mask from transcription, or ``None``.
+
+    ``None`` means ASR contributed nothing — not installed, or no words
+    found — and the caller falls back to the loudness path. The result is
+    cached on the context: transcription is the one expensive thing this
+    module can trigger, and it must never run twice for one video.
+    """
+    key = f"asr_word_gaps:{cfg.asr_model}"
+    if key not in ctx.extras:
+        try:
+            from .transcribe import word_gaps
+
+            ctx.extras[key] = word_gaps(
+                ctx.info.path, model_size=cfg.asr_model, duration=ctx.info.duration
+            )
+        except ImportError as exc:
+            # ImportError covers both the missing extra and a half-broken
+            # install; either way the run continues the way it always has.
+            warnings.warn(
+                f"segments.use_asr_words is on but transcription is unavailable ({exc}). "
+                "Falling back to loudness pauses.",
+                stacklevel=2,
+            )
+            ctx.extras[key] = None
+    gaps = ctx.extras[key]
+    if not gaps:
+        return None
+
+    mask = np.zeros(ctx.n, dtype=bool)
+    for start, end in gaps:
+        i0 = int(np.clip(start * ctx.grid_fps, 0, ctx.n))
+        i1 = int(np.clip(np.ceil(end * ctx.grid_fps), i0, ctx.n))
+        if i1 > i0:
+            mask[i0:i1] = True
+    return mask
 
 
 def _silent_runs(mask: np.ndarray, min_length: int) -> list[tuple[int, int]]:

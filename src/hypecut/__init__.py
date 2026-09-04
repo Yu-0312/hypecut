@@ -15,7 +15,7 @@ from .config import Config, ReframeConfig, RenderConfig, SegmentConfig, SignalCo
 from .pipeline import PipelineResult, analyze, render_plan, run
 from .types import Candidate, HighlightPlan, SignalTrack, VideoInfo
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 
 __all__ = [
     "__version__",

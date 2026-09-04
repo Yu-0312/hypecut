@@ -236,6 +236,11 @@ def _options_to_overrides(options: dict[str, Any]) -> dict[str, Any]:
         reframe["track"] = bool(options["reframe_track"])
     if options.get("react_to_facecam") is not None:
         reframe["react_to_facecam"] = bool(options["react_to_facecam"])
+        if options["react_to_facecam"]:
+            # The web UI has no box input and never did — before auto
+            # detection this silently used the default corner, which was
+            # usually wrong. Locating it is strictly better here.
+            reframe["facecam"] = "auto"
     if reframe:
         render["reframe"] = reframe
 

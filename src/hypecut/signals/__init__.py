@@ -8,6 +8,7 @@ group, which is loaded lazily on first use.
 from __future__ import annotations
 
 from . import audio as _audio  # noqa: F401
+from . import chat as _chat  # noqa: F401
 from . import sports as _sports  # noqa: F401
 from . import visual as _visual  # noqa: F401
 from .base import Signal, available_signals, build_signals, get_signal, register  # noqa: F401

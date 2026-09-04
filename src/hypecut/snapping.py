@@ -37,6 +37,7 @@ __all__ = [
     "boundary_strength",
     "find_boundaries",
     "find_dissolves",
+    "find_wipes",
     "refine_boundary",
     "snap_segments",
 ]
@@ -163,34 +164,185 @@ def find_dissolves(
     if diff.size < 4:
         return []
 
+    # The contrast context either side of a run is as wide as the longest run
+    # the scan can accept — the same window the original twin-comparison used.
+    hi_steps = max(3, int(round(max_length * grid_fps)))
+
+    found: list[tuple[float, float]] = []
+    for i, j in _gradual_runs(
+        diff,
+        grid_fps,
+        min_length=min_length,
+        max_length=max_length,
+        accumulation=accumulation,
+        flatness=flatness,
+        min_diff=min_diff,
+    ):
+        # Contrast has to dip inside the run relative to its surroundings: a
+        # blend of two images is flatter than either, while a camera pan (also
+        # sustained, also spike-free) keeps its contrast. A wipe keeps its
+        # contrast too, which is why it is invisible here and needs
+        # :func:`find_wipes`.
+        outside = np.concatenate([spread[max(0, i - hi_steps) : i], spread[j : j + hi_steps]])
+        if outside.size == 0 or float(spread[i:j].min()) >= float(np.median(outside)) * 0.92:
+            continue
+        found.append((i / grid_fps, j / grid_fps))
+    return found
+
+
+def find_wipes(
+    gray: np.ndarray,
+    grid_fps: float,
+    *,
+    min_length: float = 0.3,
+    max_length: float = 2.5,
+    accumulation: float = 2.0,
+    min_diff: float = 1.5,
+    band_share: float = 0.45,
+    travel: float = 0.5,
+    coherence: float = 0.7,
+) -> list[tuple[float, float]]:
+    """``(start, end)`` times of wipes and slides — transitions with a moving front.
+
+    A wipe keeps its contrast throughout, so the contrast-dip test that
+    isolates dissolves never fires on one, and no single frame is a spike, so
+    the cut detector walks past it too. What a wipe *does* have is structure:
+    at every moment the change is dominated by a narrow band — the front —
+    and that band crosses the frame in one direction.
+
+    Each frame gets a front: the lines (columns or rows) whose change reaches
+    half the frame's peak. Three tests separate a wipe from the other
+    sustained-change stretches (pans, busy gameplay) that share its profile:
+
+    * **The change is a front, not a field.** The band stays narrow — its
+      mean width is at most ``band_share`` of the frame. In a pan every
+      column moves a similar amount, so the "band" is the whole frame; the
+      same goes for a fade.
+    * **The front travels.** Its centroid must cross at least ``travel`` of
+      the frame over the run, and do so in one direction — net travel over
+      total path length at least ``coherence``. Gameplay's centroid
+      wanders; a wipe's marches.
+    * **The front is strong.** Frames vote on the geometry only while their
+      front is both absolutely strong (``2 * min_diff``) and within the
+      run's own league (30% of its strongest frame), so quiet frames at the
+      edges of the sweep cannot skew its shape.
+
+    The test is run on both axes and the stronger one wins, so vertical
+    wipes and horizontal slides are found alike.
+
+    Candidate runs are scanned on the *front-peak* trace — the per-frame
+    strongest line — rather than the frame-mean difference the dissolve
+    scan uses. A wipe's front is by far the highest-contrast thing moving
+    while it sweeps, so the transition reads as an isolated run even when
+    both of its shots keep moving on their own; on a frame-mean trace it
+    would drown in the surrounding footage's own run. A three-frame
+    smoothing of the trace bridges one-frame dips; a hard cut survives as a
+    three-frame spike and is rejected by the length test.
+
+    ``accumulation`` sets how many times the footage's own busy-time front
+    strength a run must reach; ``min_length``/``max_length`` bound the sweep
+    duration as in :func:`find_dissolves`.
+    """
+    if gray is None or gray.shape[0] < 5:
+        return []
+
+    f = gray.astype(np.float32, copy=False)
+    delta = np.abs(np.diff(f, axis=0))  # (T-1, H, W)
+    if delta.shape[0] < 4:
+        return []
+
+    h, w = delta.shape[1], delta.shape[2]
+    lo = max(2, int(round(min_length * grid_fps)))
+    hi = max(lo + 1, int(round(max_length * grid_fps)))
+
+    found: list[tuple[float, float]] = []
+    for axis, span in ((0, w), (1, h)):
+        # Mean over the axis perpendicular to the sweep: a horizontal wipe
+        # summarises each *column*, a vertical one each row.
+        spatial = 1 if axis == 0 else 2
+        profile = delta.mean(axis=spatial)  # (T-1, span): change per line
+        peak = profile.max(axis=1).astype(np.float64)  # per-frame front strength
+
+        # The front must be both absolutely strong and unusual for this
+        # footage. The baseline is the 75th percentile of the trace, not the
+        # median: a video that is half static has a median of zero, which
+        # would make any multiplier vacuous, while the p75 still tracks how
+        # busy the busy parts are. Smoothing bridges one-frame dips.
+        kernel = np.ones(3) / 3.0
+        smooth = np.convolve(peak, kernel, mode="same")
+        smooth[0], smooth[-1] = peak[0], peak[-1]
+        baseline = float(np.percentile(peak, 75))
+        threshold = max(2 * min_diff, baseline * (accumulation + 0.5))
+
+        best: tuple[float, tuple[int, int]] | None = None
+        for i, j in _runs(smooth >= threshold):
+            if not (lo <= j - i <= hi):
+                continue
+
+            vote = peak[i:j] >= max(2 * min_diff, 0.3 * float(peak[i:j].max()))
+            if vote.sum() < 3:
+                continue
+
+            # The front: lines within half the frame's own peak. Diffuse
+            # change spread over many lines does not survive the 50% bar.
+            window = profile[i:j]
+            band = window >= (0.5 * window.max(axis=1))[:, None]
+            width = band.sum(axis=1) / span
+            if float(width[vote].mean()) > band_share:
+                continue
+
+            lines = np.arange(span, dtype=np.float64)
+            mass = np.maximum((window * band).sum(axis=1), 1e-6)
+            centroid = (window * band * lines).sum(axis=1) / mass
+
+            c = centroid[vote]
+            path = float(np.abs(np.diff(c)).sum())
+            net = abs(float(c[-1] - c[0]))
+            if net < travel * span or (net / path if path > 1e-6 else 0.0) < coherence:
+                continue
+
+            score = net * (2.0 - float(width[vote].mean()))
+            if best is None or score > best[0]:
+                best = (score, (i, j))
+        if best is not None:
+            i, j = best[1]
+            found.append((i / grid_fps, j / grid_fps))
+    return sorted(found)
+
+
+def _gradual_runs(
+    diff: np.ndarray,
+    grid_fps: float,
+    *,
+    min_length: float,
+    max_length: float,
+    accumulation: float,
+    flatness: float,
+    min_diff: float,
+) -> list[tuple[int, int]]:
+    """Index spans of sustained, spike-free change — the candidates both the
+    dissolve and the wipe detectors classify in their own way.
+
+    Too short is a hard cut; too long is simply a busy stretch of video, and
+    calling that a transition would let an edge land anywhere inside it. A
+    spike inside the run means a cut that :func:`find_boundaries` already
+    handled, not a gradual one.
+    """
     baseline = float(np.median(diff))
     threshold = max(baseline * accumulation, min_diff)
 
     lo = max(2, int(round(min_length * grid_fps)))
     hi = max(lo + 1, int(round(max_length * grid_fps)))
 
-    found: list[tuple[float, float]] = []
+    out: list[tuple[int, int]] = []
     for i, j in _runs(diff >= threshold):
-        length = j - i
-        if not (lo <= length <= hi):
-            # Too short is a hard cut; too long is simply a busy stretch of
-            # video, and calling that a transition would let an edge land
-            # anywhere inside it.
+        if not (lo <= j - i <= hi):
             continue
-
         window = diff[i:j]
         if float(window.max()) > flatness * float(window.mean()):
-            continue  # a spike inside — that is a cut, already handled above
-
-        # Contrast has to dip inside the run relative to its surroundings: a
-        # blend of two images is flatter than either, while a camera pan (also
-        # sustained, also spike-free) keeps its contrast.
-        outside = np.concatenate([spread[max(0, i - hi) : i], spread[j : j + hi]])
-        if outside.size == 0 or float(spread[i:j].min()) >= float(np.median(outside)) * 0.92:
             continue
-
-        found.append((i / grid_fps, j / grid_fps))
-    return found
+        out.append((i, j))
+    return out
 
 
 def _runs(mask: np.ndarray) -> list[tuple[int, int]]:
@@ -248,19 +400,28 @@ def snap_segments(
 
     cuts = find_boundaries(ctx.gray, ctx.grid_fps)
     dissolves = find_dissolves(ctx.gray, ctx.grid_fps) if cfg.snap_to_dissolves else []
+    wipes = find_wipes(ctx.gray, ctx.grid_fps) if cfg.snap_to_dissolves else []
 
     # A gradual transition has two useful landing points, and which one is
     # right depends on the edge: an in-point wants the far side, so the clip
     # opens on the incoming shot rather than on the mix; an out-point wants the
-    # near side, so it leaves before the picture starts dissolving away.
-    # A dissolve is not spike-free at 10 Hz — some of its frames clear the cut
-    # detector's bar on their own. Those are not separate boundaries, they are
-    # the middle of one, and letting an edge land there would put the clip in
-    # the mix between two shots. The dissolve is the better description of that
-    # stretch, so cuts inside one are dropped.
-    cuts = _outside_spans(cuts, dissolves)
-    in_points = _merge_boundaries(cuts, [end for _, end in dissolves])
-    out_points = _merge_boundaries(cuts, [start for start, _ in dissolves])
+    # near side, so it leaves before the picture starts dissolving away. A
+    # wipe is the same shape of answer — its landing points are where the sweep
+    # begins and where it completes — so both kinds share the machinery.
+    # A transition is not spike-free at 10 Hz — some of its frames clear the
+    # cut detector's bar on their own. Those are not separate boundaries, they
+    # are the middle of one, and letting an edge land there would put the clip
+    # in the mix between two shots. The transition is the better description
+    # of that stretch, so cuts inside one are dropped.
+    transitions = dissolves + wipes
+    cuts = _outside_spans(cuts, transitions)
+    in_points = _merge_boundaries(
+        cuts, [(end, "dissolve") for _, end in dissolves] + [(end, "wipe") for _, end in wipes]
+    )
+    out_points = _merge_boundaries(
+        cuts,
+        [(start, "dissolve") for start, _ in dissolves] + [(start, "wipe") for start, _ in wipes],
+    )
     if not in_points[0].size and not out_points[0].size:
         return segments
 
@@ -320,21 +481,29 @@ def snap_segments(
 
 
 def _outside_spans(times: np.ndarray, spans: list[tuple[float, float]]) -> np.ndarray:
-    """Drop the times that fall strictly inside one of ``spans``."""
+    """Drop the times that fall inside one of ``spans`` — endpoints included.
+
+    A transition contributes both of its edges as landing points, so a cut on
+    a span's own boundary is redundant with it. Steep transitions — a fast
+    wipe, a short dissolve — routinely clear the cut detector's bar on their
+    final step, and letting that frame pose as a hard cut would land the edge
+    mid-sweep under a "cut" label; the transition is the better description
+    of the stretch it belongs to.
+    """
     if times.size == 0 or not spans:
         return times
     keep = np.ones(times.shape, dtype=bool)
     for start, end in spans:
-        keep &= ~((times > start) & (times < end))
+        keep &= ~((times >= start) & (times <= end))
     return times[keep]
 
 
 def _merge_boundaries(
-    cuts: np.ndarray, dissolve_edges: list[float]
+    cuts: np.ndarray, gradual: list[tuple[float, str]]
 ) -> tuple[np.ndarray, list[str]]:
-    """One sorted list of landing points, each tagged ``cut`` or ``dissolve``."""
-    times = list(cuts.tolist()) + list(dissolve_edges)
-    kinds = ["cut"] * int(cuts.size) + ["dissolve"] * len(dissolve_edges)
+    """One sorted list of landing points, each tagged ``cut``/``dissolve``/``wipe``."""
+    times = list(cuts.tolist()) + [t for t, _ in gradual]
+    kinds = ["cut"] * int(cuts.size) + [kind for _, kind in gradual]
     if not times:
         return np.zeros(0, dtype=np.float64), []
     order = np.argsort(np.asarray(times, dtype=np.float64))

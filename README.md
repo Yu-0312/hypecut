@@ -53,7 +53,8 @@ Needs Python 3.10+ and **ffmpeg** on your `PATH`.
 pip install hypecut          # CLI + library
 pip install "hypecut[web]"   # + the upload UI
 pip install "hypecut[ml]"    # + CLIP semantic reranking
-pip install "hypecut[asr]"   # + Whisper reaction-keyword detection
+pip install "hypecut[asr]"   # + Whisper reaction keywords & word-boundary trimming
+pip install "hypecut[ytdlp]" # + Twitch/YouTube VOD URLs as input
 ```
 
 Docker, if you'd rather not think about it:
@@ -92,12 +93,21 @@ hypecut cut vod.mp4 --reframe stack      # facecam on top, gameplay below
 
 # Vertical that commits to the facecam while the streamer is reacting
 hypecut cut vod.mp4 --vertical --react --facecam 0,0,0.26,0.3
+# ...or let it find the webcam on its own and check the box it chose
+hypecut cut vod.mp4 --vertical --stack --facecam auto
 
 # One analysis, three aspect ratios
 hypecut cut vod.mp4 --also vertical --also square
 
-# A folder of recordings, one reel each
+# A folder of recordings, one reel each — in parallel, if you have the cores
 hypecut batch ~/Recordings -o ~/Reels --recursive
+hypecut batch ~/Recordings --workers 4
+
+# Straight off Twitch or YouTube (needs hypecut[ytdlp]; downloaded once, cached)
+hypecut cut https://www.twitch.tv/videos/123456789 -o reel.mp4
+
+# Let the chat decide: message rate becomes a signal
+hypecut cut vod.mp4 --chat vod.chat.jsonl
 
 # Leave the edges exactly where the rolls put them
 hypecut cut vod.mp4 --no-snap --no-trim
@@ -160,8 +170,8 @@ video ─┤ decode×1 ├─► 10 Hz grid: tiny grayscale frames + mono audio
                                  ▼
                         merge → budget select
                                  │
-         snap edges to real cuts ┤  hard cuts and dissolves
-        trim the rest to pauses ─┤  only edges no cut claimed
+        snap edges to real cuts ┤  hard cuts, dissolves, wipes
+        trim the rest to pauses ┤  loudness, or ASR word timings
         plan each framing ───────┤  one per aspect ratio wanted
                                  ▼
                         ffmpeg cut + concat
@@ -199,14 +209,20 @@ first quarter be trimmed away.
 Crossfades and fades count too, and they get treated as the intervals they
 are: an in-point lands on the *far* side of a dissolve so the clip opens on
 the incoming shot, an out-point on the *near* side so it leaves before the
-picture starts mixing away.
+picture starts mixing away. Wipes and slides are found as well — they keep
+their contrast, so the dissolve test never saw them — by the one thing a
+wipe has that a pan or busy gameplay does not: a narrow front that crosses
+the frame in one direction.
 
 **What the cuts miss, the pauses catch.** A locked-off talking-head stream has
 no shot boundaries at all, so snapping has nothing to work with and edges land
 three words into a sentence. Any edge that found no boundary is then moved into
 the nearest pause instead — measured against that clip's own speech level, so a
 whispered aside and a shouted play are both handled. A real cut always wins:
-trimming never touches an edge snapping already decided.
+trimming never touches an edge snapping already decided. Pauses found from
+loudness alone can still land mid-word when a slow speaker never really stops;
+`segments.use_asr_words` swaps the level heuristic for transcribed word
+timings (behind the `[asr]` extra) so edges land *between* words.
 
 **The reel sounds like one piece.** `dynaudnorm` evens out dynamics inside a
 clip and says nothing about how two clips compare, which is exactly the
@@ -224,7 +240,10 @@ alternatives are there too: `--reframe stack` for facecam-over-gameplay, and
 `--reframe blur_pad` when the whole frame matters. With `--react` and a
 `--facecam` box, the crop commits to the streamer while the webcam is busy and
 returns to the action when it isn't — the reaction is half the highlight, and a
-crop that averages the two frames neither.
+crop that averages the two frames neither. The box itself is the one thing that
+used to need a ruler and a pause button; `--facecam auto` finds it from the
+footage — a webcam is the small rectangle that never quite stops moving — and
+stamps what it chose into the cut list so you can check it.
 
 **One analysis, several aspect ratios.** `--also vertical --also square`
 renders extra cutdowns from the same decode and the same cut decisions — each
@@ -321,7 +340,9 @@ class ChatSpike(Signal):
 
 Register it under the `hypecut.signals` entry-point group and it appears in
 `hypecut signals` for everyone who installs your package. Same story for
-refiners. See [docs/EXTENDING.md](docs/EXTENDING.md).
+refiners. See [docs/EXTENDING.md](docs/EXTENDING.md). That example is no
+longer hypothetical: HypeCut ships a `chat_rate` signal that reads a chat
+log in several common formats — hand it over with `--chat`.
 
 ## When there is nothing to cut, you get nothing
 
@@ -430,11 +451,12 @@ would otherwise never see.
 
 ## Roadmap
 
-Near-term: auto-locating the facecam, wipe detection, VOD URLs as input, a
-chat-log signal, a proper queue backend for multi-user deployments, and
-community profiles for more games. Details and open design questions in
-[docs/ROADMAP.md](docs/ROADMAP.md) — that file is the best place to find
-something to work on.
+Just shipped (v0.9): auto-locating the facecam, wipe detection, and
+word-boundary trimming — plus VOD URLs as input, a chat-log signal and
+parallel batch workers on the road to 1.0. What remains for 1.0 is one reel
+across a whole folder (a season recap, not one reel per file). Details and
+open design questions in [docs/ROADMAP.md](docs/ROADMAP.md) — that file is
+the best place to find something to work on.
 
 ## Publishing your own copy
 

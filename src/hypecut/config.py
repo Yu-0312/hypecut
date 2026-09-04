@@ -21,6 +21,10 @@ __all__ = [
     "load_config",
 ]
 
+#: The fallback facecam box, used when a layout-dependent feature needs a box
+#: and none was configured or detected.
+DEFAULT_FACECAM_BOX = [0.0, 0.0, 0.28, 0.28]
+
 
 @dataclass
 class SignalConfig:
@@ -112,6 +116,15 @@ class SegmentConfig:
     silence_drop_db: float = 14.0  # how far below the clip's own level is "quiet"
     silence_pad: float = 0.12  # breathing room kept on the speech side of the pause
 
+    # Cut between *words* rather than between sounds. When set, the pause
+    # list comes from transcribed word timings instead of the loudness
+    # heuristic, which is the fix for a slow speaker with no real level gaps:
+    # loudness finds "quiet", word timings find "between words". Opt-in
+    # because it transcribes the whole video once, and it needs the [asr]
+    # extra — without it the run warns and falls back to the loudness path.
+    use_asr_words: bool = False
+    asr_model: str = "base"
+
 
 @dataclass
 class ReframeConfig:
@@ -131,7 +144,12 @@ class ReframeConfig:
     smooth_seconds: float = 2.5
     max_pan: float = 0.10  # fraction of frame width the crop may travel per second
     keyframes: int = 6  # pan resolution; more means a longer filter expression
-    facecam: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.28, 0.28])
+    #: The facecam box, ``[x0, y0, x1, y1]`` in 0-1 coordinates — or the
+    #: string ``"auto"``, which locates the webcam from the footage itself
+    #: during analysis (:mod:`hypecut.facecam`) and stamps the resolved box
+    #: into every clip's reframe plan, so renders stay reproducible from the
+    #: sidecar without re-detecting.
+    facecam: list[float] | str = field(default_factory=lambda: list(DEFAULT_FACECAM_BOX))
     gameplay: list[float] = field(default_factory=lambda: [0.0, 0.0, 1.0, 1.0])
     facecam_share: float = 0.32  # portion of output height for the facecam pane
     blur_sigma: float = 24.0
@@ -154,6 +172,13 @@ class ReframeConfig:
             raise ValueError(
                 "render.reframe.mode is `true` — YAML read a bare `on` as a boolean. "
                 'Quote the mode name, e.g. mode: "crop".'
+            )
+        if self.facecam == "auto":
+            return
+        if not isinstance(self.facecam, list) or len(self.facecam) != 4:
+            raise ValueError(
+                "render.reframe.facecam expects [x0, y0, x1, y1] in 0-1 coordinates "
+                'or the string "auto".'
             )
 
 

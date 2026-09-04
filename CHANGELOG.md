@@ -5,6 +5,59 @@ All notable changes are documented here. This project follows
 
 ## [Unreleased]
 
+## [0.9.0] — cut points, continued, and reach
+
+Three features finish the edge-placement work (v0.9) and three close the
+distance between "a file on disk" and "the video I actually have" (v1.0
+items). Nothing existing changes behaviour by default.
+
+### Added
+
+- **`--facecam auto` — the webcam box is found from the footage.** `stack`
+  reframing and reaction-aware crops needed a hand-measured box; that was
+  the one setting left nobody could avoid. The detector reads the frames
+  already decoded: a webcam is a small rectangle that is *persistently*
+  slightly alive — not event-driven like a kill feed, not sprawling like
+  gameplay — and almost always in a corner. The resolved box is stamped
+  into each clip's reframe plan, so renders from the sidecar reproduce the
+  crop without re-detecting, and a low-confidence verdict falls back to the
+  default box rather than guessing. Profiles opt in with
+  `render.reframe.facecam: auto`; the web UI's "react to facecam" toggle
+  now detects instead of silently assuming the default corner.
+- **Wipe and slide detection.** Dissolves were covered; a wipe keeps its
+  contrast, so the contrast-dip test never fired on one. Wipes are now
+  found by their own signature — the change is a *narrow moving front*
+  (not a field like a pan, not scattered like gameplay) that crosses the
+  frame in one direction and covers it. In-points land where the sweep
+  completes, out-points where it begins; the cut list says which edges
+  moved onto a `wipe`.
+- **Word-boundary trimming** — `segments.use_asr_words` (with the existing
+  `[asr]` extra). Loudness finds pauses; word timings find *between words*,
+  which is the fix for the slow speaker with no real level gaps. The video
+  is transcribed once and cached per analysis; without the extra the run
+  warns and falls back to the loudness path unchanged.
+- **VOD URLs as input** — `hypecut cut https://...` via the new
+  `hypecut[ytdlp]` extra. A URL is downloaded once into
+  `~/.cache/hypecut/downloads`, keyed by the platform's video id, so
+  re-running a command does not re-download. Works for `cut`, `analyze`,
+  `label`, `contact-sheet` and `render --source`; `batch` remains a folder
+  operation.
+- **Chat-log signal** — `chat_rate`, driven by a log file: JSON lines,
+  TwitchDownloader's JSON, or plain `[HH:MM:SS]` text. A sibling
+  `<video>.chat.jsonl` is picked up by name, or pass `--chat <log>` on the
+  CLI. Message rate is close to a free human-labelled highlight track; it
+  fuses into the curve like any other signal and appears in every clip's
+  `reasons`.
+- **`hypecut batch --workers N`** — cut a folder on a process pool.
+  Defaults to 1, which keeps fine-grained progress bars; with `--workers`,
+  each file reports one line when it finishes. Per-file failures and the
+  exit code behave exactly as before.
+
+### Docs
+- ROADMAP: v0.9 shipped; v1.0 ships its remaining item (`--workers` and the
+  chat signal move out of it here) — "one reel across a whole folder" stays
+  open.
+
 ## [0.8.0] — nothing, too much, and twice
 
 Three changes that all answer the same complaint: the cut you get back should
