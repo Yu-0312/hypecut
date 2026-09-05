@@ -213,7 +213,12 @@ def render_plan(
         payload = plan.to_dict()
         payload["config"] = cfg.to_dict()
         sidecar.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-        write_edl(plan.segments, out.with_suffix(".edl"), fps=plan.info.fps or 30.0)
+        write_edl(
+            plan.segments,
+            out.with_suffix(".edl"),
+            fps=plan.info.fps or 30.0,
+            source_name=Path(plan.info.path).name,
+        )
     return out, sidecar
 
 

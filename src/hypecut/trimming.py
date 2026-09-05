@@ -136,10 +136,17 @@ def trim_segments(
     start_window = max(cfg.silence_window, cfg.pre_roll)
     end_window = max(cfg.silence_window, cfg.post_roll)
 
-    for seg in segments:
+    for index, seg in enumerate(segments):
         snapped = seg.meta.get("snapped") or {}
         # Same rule as the snapper: protect the event, not a point inside it.
         event_lo, _ = seg.protected()
+        # And the same neighbour bounds, for the same reason: the travel
+        # allowed here is `max(silence_window, pre_roll)`, wider than the gap
+        # `merge` guarantees, and one segment knows nothing about the next.
+        # An in-point that lands behind the previous out-point puts the same
+        # source seconds in the reel twice.
+        neighbour_lo = segments[index - 1].end if index else 0.0
+        neighbour_hi = segments[index + 1].start if index + 1 < len(segments) else duration
         i0 = int(np.clip(seg.start * ctx.grid_fps, 0, level.size - 1))
         i1 = int(np.clip(seg.end * ctx.grid_fps, i0 + 1, level.size))
 
@@ -163,12 +170,12 @@ def trim_segments(
                 target=seg.start,
                 window=start_window,
                 min_silence=cfg.min_silence,
-                lo=max(0.0, seg.start - start_window),
+                lo=max(neighbour_lo, seg.start - start_window),
                 hi=min(event_lo, seg.start + start_window),
                 prefer="end",
             )
             if edge is not None:
-                new_start = max(0.0, edge - cfg.silence_pad)
+                new_start = max(neighbour_lo, edge - cfg.silence_pad)
                 if cfg.min_duration <= seg.end - new_start <= cfg.max_duration:
                     moved["start"] = round(new_start - seg.start, 3)
                     seg.start = new_start
@@ -182,11 +189,11 @@ def trim_segments(
                 window=end_window,
                 min_silence=cfg.min_silence,
                 lo=out_point_floor(seg, cfg.snap_guard),
-                hi=min(duration, seg.end + end_window),
+                hi=min(neighbour_hi, seg.end + end_window),
                 prefer="start",
             )
             if edge is not None:
-                new_end = min(duration, edge + cfg.silence_pad)
+                new_end = min(neighbour_hi, edge + cfg.silence_pad)
                 if cfg.min_duration <= new_end - seg.start <= cfg.max_duration:
                     moved["end"] = round(new_end - seg.end, 3)
                     seg.end = new_end

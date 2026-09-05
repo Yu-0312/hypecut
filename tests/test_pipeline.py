@@ -445,3 +445,24 @@ def test_a_long_cut_is_split_into_watchable_parts(repeat_vod, tmp_path):
     ends = [max(s.end for s in group) for group in result.plan.reels()]
     starts = [min(s.start for s in group) for group in result.plan.reels()]
     assert all(ends[i] <= starts[i + 1] for i in range(len(ends) - 1))
+
+
+@requires_ffmpeg
+def test_a_plan_is_always_chronological_and_non_overlapping(sample_vod, talk_vod):
+    """The invariant the whole cut rests on, asserted end to end.
+
+    `merge` establishes it and `select` preserves it, but snapping and trimming
+    both move edges afterwards by more than the gap `merge` guarantees. Those
+    two stages are now bounded by their neighbours; this checks the property
+    that matters through the real pipeline rather than at the seam.
+    """
+    for source in (sample_vod, talk_vod):
+        segments = analyze(source, Config()).segments
+        for earlier, later in zip(segments, segments[1:], strict=False):
+            assert later.start >= earlier.end, (
+                f"{Path(source).name}: [{earlier.start:.2f}, {earlier.end:.2f}] and "
+                f"[{later.start:.2f}, {later.end:.2f}] overlap"
+            )
+        for seg in segments:
+            assert seg.start < seg.end
+            assert seg.start >= 0.0

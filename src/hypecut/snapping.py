@@ -435,13 +435,31 @@ def snap_segments(
     start_window = max(cfg.snap_window, cfg.pre_roll)
     end_window = max(cfg.snap_window, cfg.post_roll)
 
-    for seg in segments:
+    for index, seg in enumerate(segments):
         # The event, not the padding. For an instant this is a single point and
         # the guards below behave exactly as they did when that was all there
         # was; for a rally or a teamfight it is the whole exchange, and the
         # difference matters — the loudest frame of a twenty-second rally can
         # be its third shot, and nothing should be allowed to trim to there.
         event_lo, _ = seg.protected()
+
+        # An edge may never cross into a neighbour. `merge` leaves clips more
+        # than `merge_gap` apart, but the travel allowed here is larger than
+        # that gap — 3 s of start_window against a 2 s default gap — and each
+        # segment is snapped in isolation, so nothing else stops one clip's
+        # in-point from landing behind the previous clip's out-point. It shows
+        # up when the earlier clip's snap is rejected on length while the later
+        # one's is accepted: only the later edge moves, and it moves backwards
+        # past the earlier end. The reel then plays the same source seconds
+        # twice, and the sidecar and EDL faithfully record the overlap.
+        #
+        # The previous segment is already final here; the next one is not, so
+        # its *current* start is the ceiling. Both bounds hold whether or not a
+        # snap happens, which is what makes the result non-overlapping rather
+        # than merely usually non-overlapping.
+        neighbour_lo = segments[index - 1].end if index else 0.0
+        neighbour_hi = segments[index + 1].start if index + 1 < len(segments) else duration
+
         moved: dict[str, float] = {}
         kinds: dict[str, str] = {}
 
@@ -450,34 +468,83 @@ def snap_segments(
         # left, but a hard cut between the old start and the event means that
         # wind-up belonged to a different scene — keeping it would open the clip
         # on unrelated footage. The event is the hard stop.
-        found = _nearest(in_points, seg.start, start_window, lo=0.0, hi=event_lo)
+        found = _nearest(in_points, seg.start, start_window, lo=neighbour_lo, hi=event_lo)
         if found is not None and cfg.min_duration <= seg.end - found[0] <= cfg.max_duration:
             new_start, kind = found
             # Sub-frame precision only means something for a hard cut; a
             # dissolve has no single frame to be exact about.
             if cfg.snap_fine and kind == "cut":
-                new_start = refine_boundary(ctx.info.path, new_start, source_fps=ctx.info.fps)
+                new_start = _refined_or(
+                    new_start,
+                    refine_boundary(ctx.info.path, new_start, source_fps=ctx.info.fps),
+                    lo=neighbour_lo,
+                    hi=event_lo,
+                    fixed_edge=seg.end,
+                    is_start=True,
+                    cfg=cfg,
+                )
             moved["start"] = round(new_start - seg.start, 3)
             kinds["start"] = kind
-            seg.start = max(0.0, new_start)
+            seg.start = max(neighbour_lo, new_start)
 
         # Out-point: not a mirror image. An end landing inside the event would
         # cut the payoff off mid-beat, and unlike the in-point there is no
         # "wrong scene" argument for doing so.
         floor = out_point_floor(seg, cfg.snap_guard)
-        found = _nearest(out_points, seg.end, end_window, lo=floor, hi=duration)
+        found = _nearest(out_points, seg.end, end_window, lo=floor, hi=neighbour_hi)
         if found is not None and cfg.min_duration <= found[0] - seg.start <= cfg.max_duration:
             new_end, kind = found
             if cfg.snap_fine and kind == "cut":
-                new_end = refine_boundary(ctx.info.path, new_end, source_fps=ctx.info.fps)
+                new_end = _refined_or(
+                    new_end,
+                    refine_boundary(ctx.info.path, new_end, source_fps=ctx.info.fps),
+                    lo=floor,
+                    hi=neighbour_hi,
+                    fixed_edge=seg.start,
+                    is_start=False,
+                    cfg=cfg,
+                )
             moved["end"] = round(new_end - seg.end, 3)
             kinds["end"] = kind
-            seg.end = min(duration, new_end)
+            seg.end = min(neighbour_hi, new_end)
 
         if moved:
             seg.meta["snapped"] = moved
             seg.meta["snap_kind"] = kinds
     return segments
+
+
+def _refined_or(
+    coarse: float,
+    refined: float,
+    *,
+    lo: float,
+    hi: float,
+    fixed_edge: float,
+    is_start: bool,
+    cfg: SegmentConfig,
+) -> float:
+    """``refined`` if it still satisfies every guard, otherwise ``coarse``.
+
+    The guards above are checked against the coarse landing point, but the
+    value actually assigned is the refined one — and `refine_boundary` returns
+    the strongest frame difference anywhere within half a second of where it
+    was pointed, with no preference for the point it started from. On fast-cut
+    footage that is a *different* boundary: a camera cut 0.3 s after a replay
+    wipe, an explosion flash beside the edge. So the refined value can open a
+    clip inside the event the window existed to protect, or leave it short of
+    `min_duration`, both silently.
+
+    Twenty milliseconds of extra precision is not worth a clip that starts in
+    the wrong place, so a refined value that fails re-validation is discarded
+    rather than clamped: the coarse boundary is still a real one.
+    """
+    if not lo <= refined <= hi:
+        return coarse
+    length = fixed_edge - refined if is_start else refined - fixed_edge
+    if not cfg.min_duration <= length <= cfg.max_duration:
+        return coarse
+    return refined
 
 
 def _outside_spans(times: np.ndarray, spans: list[tuple[float, float]]) -> np.ndarray:

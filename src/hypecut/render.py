@@ -277,14 +277,29 @@ def write_chapters_file(segments: list[Candidate], dest: str | Path) -> Path:
     return dest
 
 
-def write_edl(segments: list[Candidate], dest: str | Path, fps: float = 30.0) -> Path:
+def write_edl(
+    segments: list[Candidate],
+    dest: str | Path,
+    fps: float = 30.0,
+    *,
+    source_name: str | None = None,
+) -> Path:
     """Emit a CMX3600 EDL so the cut can be opened in a real NLE.
 
     HypeCut's job is to find the moments; the user may well want to finish
     the edit in Resolve or Premiere. Handing over an EDL makes the tool a
     first pass rather than a black box.
+
+    ``source_name`` names the media each event is cut *from*. It matters
+    because the first pair of timecodes on every event line is source
+    timecode: an NLE reads the clip name to decide what to relink those
+    timecodes against. Naming the rendered reel there — which is what this
+    did — pointed the source timecodes at the output file, where they mean
+    nothing. It falls back to the EDL's own stem only so the signature stays
+    compatible for anyone calling this directly.
     """
     dest = Path(dest)
+    clip_name = source_name or dest.stem
     lines = ["TITLE: HYPECUT REEL", "FCM: NON-DROP FRAME", ""]
     record = 0.0
     for idx, seg in enumerate(segments, start=1):
@@ -293,7 +308,7 @@ def write_edl(segments: list[Candidate], dest: str | Path, fps: float = 30.0) ->
             f"{_tc(seg.start, fps)} {_tc(seg.end, fps)} "
             f"{_tc(record, fps)} {_tc(record + seg.duration, fps)}"
         )
-        lines.append(f"* FROM CLIP NAME: {Path(dest).stem}")
+        lines.append(f"* FROM CLIP NAME: {clip_name}")
         record += seg.duration
     dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return dest
@@ -305,6 +320,24 @@ def _hhmmss(seconds: float) -> str:
 
 
 def _tc(seconds: float, fps: float) -> str:
+    """CMX3600 non-drop timecode for a point in time.
+
+    Two different rates are at work here, and conflating them is what made
+    this wrong. The *frame number* is real time times the real rate — 29.97
+    for any console capture, camcorder or broadcast source, all of which are
+    30000/1001. The clock that displays that frame number counts at the
+    *nominal* rate: 30 for 29.97 material, 24 for 23.976. That mismatch, 3.6
+    seconds per hour, is precisely what "non-drop" means.
+
+    Truncating the real rate to get the divisor put 29 frames in a timecode
+    second of 29.97 footage, so the clock gained about two minutes an hour and
+    the EDL could not be conformed against its source at all. Every fixture in
+    the suite is 15 fps, where truncation and rounding agree — which is why
+    nothing caught it.
+    """
+    base = int(round(fps)) or 30
     total = int(round(seconds * fps))
-    f = int(fps) or 30
-    return f"{total // (3600 * f):02d}:{(total // (60 * f)) % 60:02d}:{(total // f) % 60:02d}:{total % f:02d}"
+    return (
+        f"{total // (3600 * base):02d}:{(total // (60 * base)) % 60:02d}:"
+        f"{(total // base) % 60:02d}:{total % base:02d}"
+    )

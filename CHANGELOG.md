@@ -6,6 +6,35 @@ All notable changes are documented here. This project follows
 ## [Unreleased]
 
 ### Fixed
+- **A clip can no longer open behind the previous clip's out-point.** `merge`
+  leaves clips more than `merge_gap` (2 s) apart, but snapping may move an
+  edge `max(snap_window, pre_roll)` — 3 s by default — and trimming the same,
+  and both worked on one segment at a time with no knowledge of the next. When
+  the earlier clip's snap was rejected on length while the later clip's was
+  accepted, only the later edge moved, and it moved backwards past the earlier
+  end: the reel played the same source seconds twice and the sidecar and EDL
+  recorded the overlap as if it were intended. Trimming could produce over
+  four seconds of it on stock defaults. Both stages are now bounded by their
+  neighbours, whether or not a snap happens.
+- **Fine boundary refinement can no longer break the guards that approved the
+  snap.** The length and event checks ran against the coarse landing point,
+  but the value assigned was the refined one — and `refine_boundary` returns
+  the strongest frame difference anywhere within half a second, with no
+  preference for where it was pointed. On fast-cut footage it would jump to a
+  different boundary and silently open a clip inside the event the window
+  existed to protect, or leave it short of `min_duration`. `snap_fine`
+  defaults to on, and every test in the suite had it off.
+- **EDL timecode is correct on 29.97 and 23.976 sources.** The frame count
+  used the real rate and the divisor used the *truncated* one, putting 29
+  frames in a timecode second of 29.97 footage: the clock gained about two
+  minutes an hour and the EDL could not be conformed against its source at
+  all. It now counts at the nominal rate, which is what non-drop means. Every
+  fixture in the suite is 15 fps, where truncating and rounding agree — which
+  is why nothing caught it.
+- **`FROM CLIP NAME` in the EDL names the source media, not the rendered
+  reel.** The first timecode pair on each event is *source* timecode, and an
+  NLE relinks it against whatever that line names; pointing it at the output
+  file made those timecodes meaningless.
 - **`audio_transient` now declares a noise floor, so codec artefacts cannot
   pass for an onset.** It was the only default signal without one. On footage
   with no onsets at all its median and its MAD both collapse towards zero, and

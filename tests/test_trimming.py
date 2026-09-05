@@ -158,3 +158,26 @@ def test_trim_is_a_no_op_without_audio_or_when_disabled():
     ctx.audio = None
     trim_segments(ctx, [seg], SegmentConfig(trim_to_silence=True))
     assert seg.start == pytest.approx(3.0)
+
+
+def test_trimming_never_moves_an_edge_into_a_neighbouring_clip():
+    """Same invariant as the snapper, and it can break the same way.
+
+    The travel allowed here is `max(silence_window, pre_roll)`, wider than the
+    gap `merge` guarantees between clips, and each segment is trimmed knowing
+    nothing about the next. An in-point that lands behind the previous
+    out-point puts the same source seconds in the reel twice.
+    """
+    ctx = _ctx_from_layout(
+        [("sound", 6.0), ("gap", 2.0), ("sound", 4.0), ("gap", 2.0), ("sound", 6.0)]
+    )
+    cfg = SegmentConfig(min_duration=2.0, max_duration=20.0, pre_roll=4.0, post_roll=4.0)
+    first = Candidate(2.0, 9.0, 0.9, meta={"peak_time": 4.0})
+    second = Candidate(10.0, 18.0, 0.9, meta={"peak_time": 15.0})
+
+    trim_segments(ctx, [first, second], cfg)
+
+    assert second.start >= first.end, (
+        f"clip 2 opens at {second.start:.2f} but clip 1 runs to {first.end:.2f}"
+    )
+    assert first.start < first.end and second.start < second.end

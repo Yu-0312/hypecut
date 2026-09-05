@@ -329,3 +329,59 @@ def test_a_truncated_clip_can_still_snap_its_end():
     snap_segments(ctx, [seg], cfg)
 
     assert seg.end == pytest.approx(24.0, abs=0.15)
+
+
+def test_snapping_never_moves_an_edge_into_a_neighbouring_clip():
+    """A reel plays each source second at most once.
+
+    `merge` leaves clips more than `merge_gap` apart, but a snap may travel
+    `max(snap_window, pre_roll)` — further than that gap — and each segment is
+    snapped in isolation. When the earlier clip's out-point snap is rejected on
+    length while the later clip's in-point snap is accepted, only the later
+    edge moves, and it moves backwards past the earlier end. The reel then
+    replays the overlap, and the sidecar and EDL record it as if intended.
+    """
+    gray = _gray_with_cuts(40.0, [21.0])
+    ctx = _ctx(gray, fps=30.0)
+    cfg = SegmentConfig(
+        snap_fine=False, min_duration=8.0, max_duration=20.0, pre_roll=4.0, post_roll=2.0
+    )
+    first = Candidate(14.0, 22.0, 0.9)  # end snap to 21.0 is rejected: 7.0 < min_duration
+    second = Candidate(24.5, 34.0, 0.9)  # start would snap back to 21.0, behind `first`
+
+    snap_segments(ctx, [first, second], cfg)
+
+    assert second.start >= first.end, (
+        f"clip 2 opens at {second.start} but clip 1 runs to {first.end} — "
+        f"{first.end - second.start:.2f}s of source would play twice"
+    )
+    assert first.start < first.end and second.start < second.end
+
+
+def test_fine_refinement_may_not_break_the_guards_that_approved_the_snap():
+    """The length and event checks are made on the coarse landing point.
+
+    `refine_boundary` then returns the strongest frame difference anywhere
+    within half a second, with no preference for where it was pointed — so on
+    fast-cut footage it can jump to a different boundary and land inside the
+    protected event or below `min_duration`, neither of which the guard above
+    it agreed to.
+    """
+    import hypecut.snapping as snapping
+
+    gray = _gray_with_cuts(40.0, [12.0])
+    ctx = _ctx(gray, fps=30.0)
+    cfg = SegmentConfig(snap_fine=True, min_duration=4.0, max_duration=30.0)
+    seg = Candidate(11.6, 20.0, 0.9, meta={"peak_time": 15.0, "event_start": 12.4})
+
+    # Whatever it is pointed at, claim the real boundary is half a second
+    # later — which is inside the event this clip was built around.
+    original = snapping.refine_boundary
+    snapping.refine_boundary = lambda path, at, **kw: at + 0.5
+    try:
+        snap_segments(ctx, [seg], cfg)
+    finally:
+        snapping.refine_boundary = original
+
+    assert seg.start <= 12.4, f"clip opens at {seg.start}, inside its own event (12.4)"
+    assert cfg.min_duration <= seg.duration <= cfg.max_duration
