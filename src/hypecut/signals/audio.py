@@ -53,6 +53,19 @@ class AudioTransient(Signal):
 
     description = "Onset strength — sudden jumps in energy (kills, hits, shouts)."
     requires_audio = True
+    # Log-energy units. Onset strength is a difference of log energies, so it
+    # has a scale of its own and needs a floor like every other signal here —
+    # and it needs one *more* than the others, because on footage with no
+    # onsets at all its median and its MAD both collapse towards zero. The
+    # ratio `prominence` computes is then noise over smaller noise: a constant
+    # tone through the AAC encoder measured a rise of 0.06 against a MAD of
+    # 1e-4 and reported a prominence of 405, which is the emptiness check
+    # answering "definitely something here" about a video containing nothing.
+    # Re-encoding the same tone at a different bitrate moved that 405 to 0.9.
+    # A real onset — silence into a shout, a quiet bed into a crowd — rises by
+    # 0.5 or more, so 0.15 clears codec noise by a comfortable margin without
+    # coming near a genuine event.
+    noise_floor = 0.15
 
     def compute(self, ctx: AnalysisContext) -> np.ndarray:
         lag = max(1, int(self.params.get("lag", 2)))

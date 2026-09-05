@@ -5,6 +5,24 @@ All notable changes are documented here. This project follows
 
 ## [Unreleased]
 
+### Fixed
+- **`audio_transient` now declares a noise floor, so codec artefacts cannot
+  pass for an onset.** It was the only default signal without one. On footage
+  with no onsets at all its median and its MAD both collapse towards zero, and
+  the ratio `prominence` computes becomes noise divided by smaller noise: a
+  constant tone through the AAC encoder measured a rise of 0.06 against a MAD
+  of 1e-4 and reported a prominence of 405 — the emptiness check answering
+  "definitely something here" about a video containing nothing. The same tone
+  at 32k scored 0.9 and came back empty, so which answer you got depended on
+  the ffmpeg build. That is `min_prominence` defeated on any footage carrying
+  a steady tone, and it is why CI failed on macOS alone: Homebrew's ffmpeg and
+  Ubuntu's leave different artefacts behind. A real onset rises by 0.5 or
+  more; the floor is 0.15.
+- **The parallel-batch tests now use footage with an actual highlight in it.**
+  They exercise the process pool, but they fed the detector a uniform clip it
+  had every reason to call empty, and cut on Linux only by way of the bug
+  above. The fixture is now a quiet bed with a loud stretch in the middle.
+
 ## [0.9.0] — cut points, continued, and reach
 
 Three features finish the edge-placement work (v0.9) and three close the

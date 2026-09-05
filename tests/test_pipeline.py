@@ -366,6 +366,48 @@ def test_an_empty_video_yields_no_reel_and_says_so(boring_vod, tmp_path):
     assert result.plan.prominence < result.plan.min_prominence
 
 
+def _tone_vod(path: Path, bitrate: str) -> Path:
+    """One constant tone over one uniform test pattern, at a given bitrate."""
+    from tests.conftest import _run
+
+    _run(
+        "ffmpeg -v error -y -f lavfi -i testsrc2=s=320x180:r=15:d=12 "
+        "-f lavfi -i sine=frequency=400:r=48000:d=12 "
+        "-filter_complex [1:a]volume=6.0[a] -map 0:v -map [a] "
+        "-c:v libx264 -preset ultrafast -crf 32 -pix_fmt yuv420p "
+        "-c:a aac -b:a {br} {out}",
+        br=bitrate,
+        out=str(path),
+    )
+    return path
+
+
+@requires_ffmpeg
+@pytest.mark.parametrize("bitrate", ["64k", "32k", "16k"])
+def test_a_uniform_tone_is_empty_whatever_the_encoder_left_behind(tmp_path, bitrate):
+    """Emptiness has to be a property of the footage, not of the codec.
+
+    A constant tone over a constant test pattern contains no event, so the
+    answer must be "nothing here" whichever encoder wrote the file. It was
+    not. `audio_transient` declared no noise floor, so on footage with no
+    onsets its median and its MAD both collapsed towards zero and the ratio
+    `prominence` computes became noise divided by smaller noise. At 64k the
+    AAC encoder's own artefacts measured a rise of 0.06 against a MAD of
+    1e-4 and reported a prominence of 405 — the emptiness check answering
+    "definitely something here" about a video containing nothing. The same
+    tone at 32k scored 0.9 and came back empty.
+
+    Which answer you got therefore depended on the ffmpeg build, which is how
+    this reached CI as a macOS-only failure with every Linux job green.
+    Parameterising the bitrate is the whole point: all three must agree.
+    """
+    result = run(_tone_vod(tmp_path / f"tone_{bitrate}.mp4", bitrate), tmp_path / "out.mp4")
+
+    assert result.reels == []
+    assert "stands out" in result.plan.empty_reason
+    assert result.plan.prominence < result.plan.min_prominence
+
+
 @requires_ffmpeg
 def test_the_same_empty_video_cuts_fine_once_the_check_is_off(boring_vod, tmp_path):
     """The gate is the only thing stopping it — proof the footage is workable."""

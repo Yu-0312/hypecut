@@ -15,15 +15,33 @@ pytestmark = pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg not installed")
 
 
 def _make_video(path, seconds: int = 12) -> None:
-    """A short clip with obvious content, small enough to cut quickly."""
+    """A short clip with one unmistakable highlight in the middle.
+
+    The footage has to *contain an event*, not merely be non-silent. Every
+    threshold below `min_prominence` is relative to the video it is given, so
+    a clip of one constant tone over one uniform test pattern has nothing for
+    the emptiness check to find and is correctly judged empty — which is what
+    the previous fixture was. It cut on Linux only because the AAC encoder's
+    own noise, 0.06 of a log-energy unit, divided by a near-zero MAD, looked
+    to `prominence` like a 405x onset; the same tone at a different bitrate
+    scores 0.9 and comes back empty. A quiet bed with a loud stretch in the
+    middle gives the batch something real to cut whatever ffmpeg is on PATH.
+
+    These tests are about the process pool, not the detector, so the footage
+    they feed it should not be a borderline case for the detector.
+    """
+    loud_from, loud_to = seconds / 3.0, seconds * 2.0 / 3.0
     subprocess.run(
         cmd(
             "ffmpeg -v error -y -f lavfi -i testsrc2=s=320x180:r=15:d={d} "
-            "-f lavfi -i sine=frequency=400:r=48000:d={d} "
-            "-filter_complex [1:a]volume=6.0[a] -map 0:v -map [a] "
+            "-f lavfi -i anoisesrc=c=pink:r=48000:a=0.02:d={d} "
+            "-filter_complex [1:a]volume='1+24*between(t,{lo},{hi})':eval=frame[a] "
+            "-map 0:v -map [a] "
             "-c:v libx264 -preset ultrafast -crf 32 -pix_fmt yuv420p "
             "-c:a aac -b:a 64k {out}",
             d=str(seconds),
+            lo=f"{loud_from:.2f}",
+            hi=f"{loud_to:.2f}",
             out=str(path),
         ),
         check=True,
