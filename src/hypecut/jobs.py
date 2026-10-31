@@ -10,15 +10,17 @@ contained change.
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
-import traceback
 import uuid
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
 from queue import Empty, Queue
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 __all__ = ["JobStatus", "Job", "JobStore"]
 
@@ -68,7 +70,14 @@ class Job:
 class JobStore:
     """Thread-safe job registry plus a worker pool."""
 
-    def __init__(self, data_dir: Path, workers: int = 1, max_jobs: int = 200) -> None:
+    def __init__(
+        self,
+        data_dir: Path,
+        workers: int = 1,
+        max_jobs: int = 200,
+        ttl_seconds: float | None = None,
+        keep_uploads: bool = False,
+    ) -> None:
         self.data_dir = Path(data_dir)
         self.uploads = self.data_dir / "uploads"
         self.outputs = self.data_dir / "outputs"
@@ -80,6 +89,11 @@ class JobStore:
         self._lock = threading.Lock()
         self._queue: Queue[str] = Queue()
         self._max_jobs = max_jobs
+        # Finished jobs older than this are deleted together with their files.
+        self._ttl = ttl_seconds
+        # By default the uploaded source is removed once a job finishes; renders stay until eviction.
+        self._keep_uploads = keep_uploads
+        self._last_sweep = 0.0
         self._stopping = threading.Event()
         self._threads = [
             threading.Thread(target=self._worker, name=f"hypecut-worker-{i}", daemon=True)
@@ -129,17 +143,25 @@ class JobStore:
             try:
                 job_id = self._queue.get(timeout=0.5)
             except Empty:
+                self._maybe_sweep()
                 continue
             job = self.get(job_id)
             if job is None or job.status is JobStatus.CANCELLED:
+                if job is not None and not self._keep_uploads:
+                    Path(job.source).unlink(missing_ok=True)
+                self._queue.task_done()
                 continue
             try:
                 self._process(job)
             except Exception:  # pragma: no cover - defensive
+                # The traceback (with server paths) goes to the log, not to the browser.
+                log.exception("job %s failed", job.id)
                 job.status = JobStatus.FAILED
-                job.error = traceback.format_exc(limit=4)
+                job.error = job.error or "internal error"
                 job.finished_at = time.time()
             finally:
+                if not self._keep_uploads and job.status in (JobStatus.DONE, JobStatus.FAILED):
+                    Path(job.source).unlink(missing_ok=True)
                 self._queue.task_done()
 
     def _process(self, job: Job) -> None:
@@ -204,15 +226,36 @@ class JobStore:
 
     # ---------------------------------------------------------------- private
 
-    def _evict_locked(self) -> None:
+    def _maybe_sweep(self, every: float = 60.0) -> None:
+        now = time.time()
+        if now - self._last_sweep < every:
+            return
+        self._last_sweep = now
+        with self._lock:
+            self._evict_locked(now)
+
+    def _evict_locked(self, now: float | None = None) -> None:
+        now = time.time() if now is None else now
+        if self._ttl is not None:
+            for job_id in list(self._order):
+                job = self._jobs.get(job_id)
+                if job and job.finished_at and now - job.finished_at > self._ttl:
+                    self._drop_locked(job_id)
         while len(self._order) > self._max_jobs:
-            old = self._order.pop(0)
-            job = self._jobs.pop(old, None)
-            if job is None:
-                continue
-            for path in (job.source, job.output, *job.variants.values()):
-                if path:
-                    Path(path).unlink(missing_ok=True)
+            self._drop_locked(self._order[0])
+
+    def _drop_locked(self, job_id: str) -> None:
+        if job_id in self._order:
+            self._order.remove(job_id)
+        job = self._jobs.pop(job_id, None)
+        if job is None:
+            return
+        # Every reel part (not only the first), variants, and sidecars named after the job id.
+        paths = {job.source, job.output, *job.parts, *job.variants.values()}
+        paths.update(str(p) for p in self.outputs.glob(f"{job.id}*"))
+        for path in paths:
+            if path:
+                Path(path).unlink(missing_ok=True)
 
 
 def _options_to_overrides(options: dict[str, Any]) -> dict[str, Any]:

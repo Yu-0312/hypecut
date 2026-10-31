@@ -243,13 +243,12 @@ def render_variants(
             else output.with_name(f"{output.stem}_{variant}{output.suffix}")
         )
         lo, hi = index / len(names), (index + 1) / len(names)
+
+        def scaled(p: float, m: str, lo: float = lo, hi: float = hi) -> None:
+            progress(lo + (hi - lo) * p, m)
+
         out, _ = render_plan(
-            plan,
-            dest,
-            config,
-            progress=lambda p, m, lo=lo, hi=hi: progress(lo + (hi - lo) * p, m),
-            write_sidecar=variant is None,
-            variant=variant,
+            plan, dest, config, progress=scaled, write_sidecar=variant is None, variant=variant
         )
         outputs[variant or "base"] = out
     return outputs
@@ -295,11 +294,11 @@ def render_reels(
         if cfg.variants:
             rendered = render_variants(part, dest, cfg, progress=scaled)
             path = rendered["base"]
-            sidecar = path.with_suffix(".hypecut.json")
+            sidecar: Path | None = path.with_suffix(".hypecut.json")
             outputs.append(
                 ReelOutput(
                     path=path,
-                    sidecar=sidecar if sidecar.exists() else None,
+                    sidecar=sidecar if sidecar is not None and sidecar.exists() else None,
                     variants={k: v for k, v in rendered.items() if k != "base"},
                     clips=len(segments),
                 )

@@ -14,6 +14,7 @@ home beyond the URL the user asked for.
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from pathlib import Path
 
 __all__ = ["looks_like_url", "download_dir", "ensure_local", "DownloadError"]
@@ -96,7 +97,7 @@ def ensure_local(source: str, *, progress=None) -> Path:
     return path
 
 
-def _hook(progress) -> dict[str, object]:
+def _hook(progress) -> Callable[[dict], None]:
     """Map a yt-dlp progress hook onto HypeCut's progress callback."""
 
     def report(payload: dict) -> None:

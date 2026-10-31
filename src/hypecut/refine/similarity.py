@@ -155,12 +155,14 @@ class Similarity(Refiner):
 
         alike: list[tuple[int, int, float]] = []
         for i in range(len(ordered)):
-            if vectors[i] is None:
+            vi = vectors[i]
+            if vi is None:
                 continue
             for j in range(i + 1, len(ordered)):
-                if vectors[j] is None:
+                vj = vectors[j]
+                if vj is None:
                     continue
-                score = cosine(vectors[i], vectors[j])
+                score = cosine(vi, vj)
                 if score < threshold:
                     continue
                 alike.append((i, j, score))

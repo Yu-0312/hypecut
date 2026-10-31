@@ -265,7 +265,7 @@ def write_chapters_file(segments: list[Candidate], dest: str | Path) -> Path:
         start_ms = int(cursor * 1000)
         cursor += seg.duration
         end_ms = int(cursor * 1000)
-        top = max(seg.reasons, key=seg.reasons.get) if seg.reasons else "highlight"
+        top = max(seg.reasons, key=lambda k: seg.reasons[k]) if seg.reasons else "highlight"
         lines += [
             "[CHAPTER]",
             "TIMEBASE=1/1000",

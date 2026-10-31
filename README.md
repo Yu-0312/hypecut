@@ -63,6 +63,13 @@ Docker, if you'd rather not think about it:
 docker compose up -d         # → http://localhost:8000
 ```
 
+The web API has no user accounts. By default it only listens on localhost.
+If you expose it on a network, set `HYPECUT_TOKEN` and open
+`http://<host>:8000/login?token=<your token>` once in the browser (API clients can
+send `Authorization: Bearer <token>`). Finished jobs and their files are deleted
+after `HYPECUT_JOB_TTL_HOURS` (default 24); uploads are removed as soon as a job
+finishes unless `HYPECUT_KEEP_UPLOADS=1`.
+
 ## Usage
 
 ### Web UI

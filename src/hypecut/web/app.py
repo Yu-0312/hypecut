@@ -8,10 +8,19 @@ Endpoints
 ``GET  /api/jobs/{id}/reel``  the rendered mp4
 ``GET  /api/jobs/{id}/plan``  the JSON cut list
 ``GET  /api/meta``            registered signals, refiners and limits
+``GET  /login?token=...``     sets the session cookie when HYPECUT_TOKEN is configured
+
+Security
+--------
+The server binds to localhost by default. If you expose it on a network, set
+``HYPECUT_TOKEN``: every endpoint except ``/api/meta`` and ``/login`` then
+requires ``Authorization: Bearer <token>`` or the cookie set by
+``/login?token=<token>`` (open that URL once in the browser).
 """
 
 from __future__ import annotations
 
+import hmac
 import json
 import os
 import shutil
@@ -19,8 +28,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .. import __version__
@@ -32,11 +42,24 @@ from ..reframe import MODES as REFRAME_MODES
 DATA_DIR = Path(os.environ.get("HYPECUT_DATA_DIR", "./hypecut-data")).resolve()
 MAX_UPLOAD_MB = int(os.environ.get("HYPECUT_MAX_UPLOAD_MB", "4096"))
 WORKERS = int(os.environ.get("HYPECUT_WORKERS", "1"))
+# Finished jobs (and their uploads / renders) are deleted after this many hours.
+JOB_TTL_HOURS = float(os.environ.get("HYPECUT_JOB_TTL_HOURS", "24"))
+# Keep the uploaded source after processing (default: delete it to save disk).
+KEEP_UPLOADS = os.environ.get("HYPECUT_KEEP_UPLOADS", "").lower() in {"1", "true", "yes"}
+PROFILES_DIR = Path(os.environ.get("HYPECUT_PROFILES_DIR", "configs"))
+TOKEN = os.environ.get("HYPECUT_TOKEN", "").strip()
+TOKEN_COOKIE = "hypecut_token"
+PUBLIC_PATHS = {"/api/meta", "/login"}
 ALLOWED_SUFFIXES = {".mp4", ".mkv", ".mov", ".webm", ".avi", ".flv", ".ts", ".m4v"}
 
 STATIC_DIR = Path(__file__).parent / "static"
 
-store = JobStore(DATA_DIR, workers=WORKERS)
+store = JobStore(
+    DATA_DIR,
+    workers=WORKERS,
+    ttl_seconds=JOB_TTL_HOURS * 3600 if JOB_TTL_HOURS > 0 else None,
+    keep_uploads=KEEP_UPLOADS,
+)
 
 
 @asynccontextmanager
@@ -48,6 +71,53 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="HypeCut", version=__version__, lifespan=lifespan)
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+def _token_ok(candidate: str | None) -> bool:
+    if not candidate:
+        return False
+    return hmac.compare_digest(candidate.encode(), TOKEN.encode())
+
+
+@app.middleware("http")
+async def require_token(request: Request, call_next):
+    """Optional shared-secret auth for deployments reachable from a network."""
+    if not TOKEN or request.url.path in PUBLIC_PATHS:
+        return await call_next(request)
+    header = request.headers.get("authorization", "")
+    bearer = header[7:] if header.lower().startswith("bearer ") else None
+    if _token_ok(bearer) or _token_ok(request.cookies.get(TOKEN_COOKIE)):
+        return await call_next(request)
+    return JSONResponse(
+        {"detail": "Unauthorized: open /login?token=<HYPECUT_TOKEN> first"}, status_code=401
+    )
+
+
+@app.get("/login")
+def login(token: str = "") -> Response:
+    if not TOKEN:
+        return RedirectResponse("/", status_code=303)
+    if not _token_ok(token):
+        raise HTTPException(status_code=401, detail="Invalid token")
+    response = RedirectResponse("/", status_code=303)
+    response.set_cookie(
+        TOKEN_COOKIE, TOKEN, httponly=True, samesite="strict", max_age=30 * 24 * 3600
+    )
+    return response
+
+
+def _resolve_profile(value: str) -> str | None:
+    """Map the form value to a shipped profile file; never accept arbitrary paths."""
+    if not value:
+        return None
+    profiles = describe_profiles(PROFILES_DIR) if PROFILES_DIR.is_dir() else []
+    for profile in profiles:
+        if value in (profile["name"], profile["path"]):
+            return profile["path"]
+    raise HTTPException(
+        status_code=422,
+        detail=f"Unknown profile {value!r}; available: {sorted(p['name'] for p in profiles)}",
+    )
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -74,19 +144,19 @@ def meta() -> dict[str, Any]:
         "variants": sorted(VARIANT_PRESETS),
         # Name + the profile's own first comment line, so the picker can offer
         # "football, basketball, broadcast coverage" instead of a filename.
-        "profiles": describe_profiles(Path("configs")) if Path("configs").is_dir() else [],
+        "profiles": describe_profiles(PROFILES_DIR) if PROFILES_DIR.is_dir() else [],
     }
 
 
 @app.post("/api/jobs")
 async def create_job(
     file: UploadFile = File(...),
-    target_duration: float = Form(120.0),
-    max_clips: int = Form(0),
-    clips_per_reel: int = Form(10),
-    percentile: float = Form(92.0),
-    min_duration: float = Form(4.0),
-    max_duration: float = Form(20.0),
+    target_duration: float = Form(120.0, ge=0, le=36000),
+    max_clips: int = Form(0, ge=0, le=1000),
+    clips_per_reel: int = Form(10, ge=1, le=200),
+    percentile: float = Form(92.0, ge=0, le=100),
+    min_duration: float = Form(4.0, gt=0, le=600),
+    max_duration: float = Form(20.0, gt=0, le=3600),
     refiners: str = Form("diversity,pacing,similarity"),
     profile: str = Form(""),
     reframe: str = Form("off"),
@@ -97,6 +167,9 @@ async def create_job(
     also: str = Form(""),
 ) -> JSONResponse:
     suffix = Path(file.filename or "").suffix.lower()
+    if min_duration > max_duration:
+        raise HTTPException(status_code=422, detail="min_duration must not exceed max_duration")
+    profile_path = _resolve_profile(profile)
     if reframe not in REFRAME_MODES:
         raise HTTPException(
             status_code=422, detail=f"Unknown reframe mode {reframe!r}; expected {REFRAME_MODES}"
@@ -127,7 +200,8 @@ async def create_job(
                 raise HTTPException(
                     status_code=413, detail=f"File exceeds {MAX_UPLOAD_MB} MB limit"
                 )
-            fh.write(chunk)
+            # Disk writes off the event loop so one big upload does not stall other requests.
+            await run_in_threadpool(fh.write, chunk)
 
     options = {
         "target_duration": target_duration,
@@ -137,7 +211,7 @@ async def create_job(
         "min_duration": min_duration,
         "max_duration": max_duration,
         "refiners": [r.strip() for r in refiners.split(",") if r.strip()],
-        "profile": profile or None,
+        "profile": profile_path,
         "reframe": reframe,
         "reframe_track": reframe_track,
         "snap_to_shots": snap_to_shots,
@@ -151,6 +225,7 @@ async def create_job(
 
 @app.get("/api/jobs")
 def list_jobs(limit: int = 25) -> dict[str, Any]:
+    limit = max(1, min(limit, 200))
     return {"jobs": [j.public() for j in store.list(limit=limit)]}
 
 

@@ -56,8 +56,8 @@ def action_track(ctx: AnalysisContext, seg: Candidate, cfg: ReframeConfig) -> li
     if ctx.gray is None or ctx.gray.shape[0] < 2:
         return [0.5]
 
-    i0 = int(max(0, np.searchsorted(ctx.times, seg.start)))
-    i1 = int(min(ctx.times.size, np.searchsorted(ctx.times, seg.end) + 1))
+    i0 = max(0, int(np.searchsorted(ctx.times, seg.start)))
+    i1 = min(int(ctx.times.size), int(np.searchsorted(ctx.times, seg.end)) + 1)
     frames = ctx.gray[i0:i1]
     if frames.shape[0] < 2:
         return [0.5]
@@ -104,8 +104,8 @@ def plan_reframe(
     resolved = cfg
     if cfg.facecam == "auto":
         found = _locate_cached(ctx, progress)
-        box = found["box"] if found else list(DEFAULT_FACECAM_BOX)
-        resolved = replace(cfg, facecam=list(box))
+        box: list[float] = list(found["box"]) if found else list(DEFAULT_FACECAM_BOX)  # type: ignore[call-overload]
+        resolved = replace(cfg, facecam=box)
 
     for seg in segments:
         plan: dict[str, object] = {"mode": cfg.mode}

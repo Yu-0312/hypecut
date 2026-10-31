@@ -19,10 +19,8 @@ def load_plugins() -> list[str]:
     from importlib.metadata import entry_points
 
     loaded: list[str] = []
-    try:
-        eps = entry_points(group="hypecut.refiners")
-    except TypeError:  # pragma: no cover
-        eps = entry_points().get("hypecut.refiners", [])  # type: ignore[assignment]
+    # requires-python >= 3.10, so the selectable entry_points() API is always available.
+    eps = entry_points(group="hypecut.refiners")
     for ep in eps:
         try:
             ep.load()

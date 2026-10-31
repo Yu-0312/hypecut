@@ -103,7 +103,9 @@ def contact_sheet(
                     start=round(seg.start, 3),
                     end=round(seg.end, 3),
                     score=round(seg.score, 4),
-                    top_signal=max(seg.reasons, key=seg.reasons.get) if seg.reasons else None,
+                    top_signal=max(seg.reasons, key=lambda k: seg.reasons[k])
+                    if seg.reasons
+                    else None,
                 )
             index.append(entry)
 

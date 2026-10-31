@@ -55,10 +55,10 @@ dev = [
 all = ["hypecut[web,ml,asr,ytdlp]"]
 
 [project.urls]
-Homepage = "https://github.com/hypecut/hypecut"
-Documentation = "https://github.com/hypecut/hypecut#readme"
-Issues = "https://github.com/hypecut/hypecut/issues"
-Source = "https://github.com/hypecut/hypecut"
+Homepage = "https://github.com/Yu-0312/hypecut"
+Documentation = "https://github.com/Yu-0312/hypecut#readme"
+Issues = "https://github.com/Yu-0312/hypecut/issues"
+Source = "https://github.com/Yu-0312/hypecut"
 
 [project.scripts]
 hypecut = "hypecut.cli:main"

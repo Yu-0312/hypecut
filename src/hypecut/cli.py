@@ -15,6 +15,7 @@ import json
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 from . import __version__
 from .config import Config, describe_profiles, load_config
@@ -457,7 +458,9 @@ def _run_contact_sheet(args: argparse.Namespace) -> int:
     else:
         print(f"Wrote {dest} ({len(index)} tiles)")
         for entry in index:
-            print(f"  {entry['tile']:02d}  {_hhmmss(float(entry['time']))}")
+            tile: Any = entry["tile"]
+            at: Any = entry["time"]
+            print(f"  {int(tile):02d}  {_hhmmss(float(at))}")
     return 0
 
 
@@ -519,7 +522,7 @@ def _run_label(args: argparse.Namespace, report) -> int:
             "start": round(seg.start, 3),
             "end": round(seg.end, 3),
             "keep": None,
-            "why": max(seg.reasons, key=seg.reasons.get) if seg.reasons else "",
+            "why": max(seg.reasons, key=lambda k: seg.reasons[k]) if seg.reasons else "",
         }
         for seg in plan.segments
     ]
@@ -550,12 +553,12 @@ def _run_eval(args: argparse.Namespace) -> int:
     from .pipeline import analyze
 
     profiles: list[str | None] = list(args.profile) if args.profile else [None]
-    results: dict[str, list[dict[str, object]]] = {}
+    results: dict[str, list[dict[str, Any]]] = {}
 
     for profile in profiles:
         cfg = load_config(profile) if profile else load_config()
         name = Path(profile).stem if profile else "default"
-        rows: list[dict[str, object]] = []
+        rows: list[dict[str, Any]] = []
         for labels_path in args.labels:
             labels = load_labels(labels_path)
             plan = analyze(labels.video, cfg)
@@ -808,7 +811,7 @@ def _summarise(plan, quiet: bool) -> None:
     if trimmed:
         print(f"{trimmed}/{total} clips had an edge moved into a pause")
     for seg in plan.segments:
-        top = max(seg.reasons, key=seg.reasons.get) if seg.reasons else "-"
+        top = max(seg.reasons, key=lambda k: seg.reasons[k]) if seg.reasons else "-"
         notes = []
         if seg.meta.get("snapped"):
             notes.append(

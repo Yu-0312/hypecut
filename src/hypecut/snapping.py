@@ -184,7 +184,7 @@ def find_dissolves(
         # contrast too, which is why it is invisible here and needs
         # :func:`find_wipes`.
         outside = np.concatenate([spread[max(0, i - hi_steps) : i], spread[j : j + hi_steps]])
-        if outside.size == 0 or float(spread[i:j].min()) >= float(np.median(outside)) * 0.92:
+        if outside.size == 0 or float(np.min(spread[i:j])) >= float(np.median(outside)) * 0.92:
             continue
         found.append((i / grid_fps, j / grid_fps))
     return found
@@ -279,7 +279,7 @@ def find_wipes(
             if not (lo <= j - i <= hi):
                 continue
 
-            vote = peak[i:j] >= max(2 * min_diff, 0.3 * float(peak[i:j].max()))
+            vote = peak[i:j] >= max(2 * min_diff, 0.3 * float(np.max(peak[i:j])))
             if vote.sum() < 3:
                 continue
 

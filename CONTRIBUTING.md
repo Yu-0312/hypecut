@@ -14,7 +14,7 @@ Thanks for looking. The three most useful things you can do, in order:
 ## Setup
 
 ```bash
-git clone https://github.com/hypecut/hypecut && cd hypecut
+git clone https://github.com/Yu-0312/hypecut && cd hypecut
 python -m venv .venv && source .venv/bin/activate
 make dev            # pip install -e ".[web,dev]"
 make test

@@ -3,7 +3,9 @@ services:
     build: .
     image: hypecut:latest
     ports:
-      - "8000:8000"
+      # Only reachable from this machine. To expose it on your network, change to
+      # "8000:8000" AND set HYPECUT_TOKEN below (then open /login?token=... once).
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./hypecut-data:/data
       # Mount your own profiles to override the shipped ones:
@@ -12,6 +14,8 @@ services:
       HYPECUT_DATA_DIR: /data
       HYPECUT_WORKERS: "1"          # one encode at a time; raise if you have cores
       HYPECUT_MAX_UPLOAD_MB: "4096"
+      HYPECUT_JOB_TTL_HOURS: "24"   # finished jobs and their files are deleted after this
+      # HYPECUT_TOKEN: "change-me"  # required if the port is reachable from other machines
     restart: unless-stopped
     # Uncomment for GPU-accelerated refiners (hypecut[ml]):
     # deploy:

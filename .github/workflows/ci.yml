@@ -22,7 +22,7 @@ jobs:
       - run: pip install ruff mypy
       - run: ruff check src tests
       - run: ruff format --check src tests
-      - run: mypy src/hypecut || true   # advisory until the codebase is fully typed
+      - run: mypy src/hypecut
 
   test:
     runs-on: ${{ matrix.os }}
